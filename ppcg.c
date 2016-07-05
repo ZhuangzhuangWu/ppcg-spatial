@@ -900,6 +900,11 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 	isl_union_map_free(ps->dep_forced);
 	isl_union_map_free(ps->tagged_dep_order);
 	isl_union_map_free(ps->dep_order);
+	isl_union_map_free(ps->cache_block_dep_flow);
+	isl_union_map_free(ps->cache_block_dep_rar);
+	isl_union_map_free(ps->cache_block_may_writes);
+	isl_union_map_free(ps->cache_block_must_writes);
+	isl_union_map_free(ps->cache_block_reads);
 	isl_schedule_free(ps->schedule);
 	isl_union_pw_multi_aff_free(ps->tagger);
 	isl_union_map_free(ps->independence);
