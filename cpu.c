@@ -615,7 +615,7 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 	struct ppcg_scop *ps)
 {
 	isl_schedule_constraints *sc;
-	isl_union_map *validity, *coincidence;
+	isl_union_map *validity, *coincidence, *proximity;
 
 	sc = isl_schedule_constraints_on_domain(isl_union_set_copy(ps->domain));
 	if (ps->options->live_range_reordering) {
@@ -640,8 +640,13 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 	if (ps->options->openmp)
 		sc = isl_schedule_constraints_set_coincidence(sc, coincidence);
 	sc = isl_schedule_constraints_set_validity(sc, validity);
+
+	proximity = isl_union_map_copy(ps->dep_flow);
+	if(ps->options->model_spatial_locality)
+		proximity = isl_union_map_union(proximity, ps->cache_block_dep_flow);
+
 	sc = isl_schedule_constraints_set_proximity(sc,
-					isl_union_map_copy(ps->dep_flow));
+					proximity);
 
 	return sc;
 }
