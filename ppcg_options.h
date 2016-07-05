@@ -45,6 +45,9 @@ struct ppcg_options {
 	/* Maximal amount of shared memory. */
 	int max_shared_memory;
 
+	/* Model spatial locality while finding transformations. */
+	int model_spatial_locality;
+
 	/* The target we generate code for. */
 	int target;
 

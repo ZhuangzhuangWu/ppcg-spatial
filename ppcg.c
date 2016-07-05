@@ -29,6 +29,7 @@
 #include <isl/id_to_ast_expr.h>
 #include <isl/ast_build.h>
 #include <isl/schedule.h>
+#include <isl/constraint.h>
 #include <pet.h>
 #include "ppcg.h"
 #include "ppcg_options.h"
@@ -700,6 +701,46 @@ static void compute_flow_dep(struct ppcg_scop *ps)
 	isl_union_flow_free(flow);
 }
 
+/* Compute the spatial locality dependences
+  */
+static void compute_spatial_locality_flow_dep(struct ppcg_scop *ps)
+{
+	isl_union_access_info *access;
+	isl_union_flow *flow;
+
+	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->cache_block_reads));
+	access = isl_union_access_info_set_must_source(access,
+				isl_union_map_copy(ps->cache_block_must_writes));
+	access = isl_union_access_info_set_may_source(access,
+				isl_union_map_copy(ps->cache_block_may_writes));
+	access = isl_union_access_info_set_schedule(access,
+				isl_schedule_copy(ps->schedule));
+	flow = isl_union_access_info_compute_flow(access);
+
+	ps->cache_block_dep_flow = isl_union_flow_get_may_dependence(flow);
+	isl_union_flow_free(flow);
+}
+
+/* Compute the spatial locality dependences
+  */
+static void compute_spatial_locality_rar_dep(struct ppcg_scop *ps)
+{
+	isl_union_access_info *access;
+	isl_union_flow *flow;
+
+	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->cache_block_reads));
+	access = isl_union_access_info_set_must_source(access,
+				isl_union_map_copy(ps->cache_block_reads));
+	access = isl_union_access_info_set_may_source(access,
+				isl_union_map_copy(ps->cache_block_reads));
+	access = isl_union_access_info_set_schedule(access,
+				isl_schedule_copy(ps->schedule));
+	flow = isl_union_access_info_compute_flow(access);
+
+	ps->cache_block_dep_rar = isl_union_flow_get_may_dependence(flow);
+	isl_union_flow_free(flow);
+}
+
 /* Compute the dependences of the program represented by "scop".
  * Store the computed potential flow dependences
  * in scop->dep_flow and the reads with potentially no corresponding writes in
@@ -728,6 +769,11 @@ static void compute_dependences(struct ppcg_scop *scop)
 		compute_tagged_flow_dep(scop);
 	else
 		compute_flow_dep(scop);
+
+	if (scop->options->model_spatial_locality){
+		compute_spatial_locality_flow_dep(scop);
+		compute_spatial_locality_rar_dep(scop);
+	}
 
 	may_source = isl_union_map_union(isl_union_map_copy(scop->may_writes),
 					isl_union_map_copy(scop->reads));
@@ -864,6 +910,83 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 	return NULL;
 }
 
+
+struct cache_block_map_data {
+	int cache_block_size;
+	isl_union_map *res;
+};
+
+/* Construct and apply a cache block map for a given array access.
+ * Cache block map groups the contiguous array elements into a single
+ * group. This mapping is applied only to the innermost dimension of the
+ * array. Assumes the arrays are stored in row major format.
+ */
+static isl_stat cache_block_map(__isl_take isl_map *map, void *user)
+{
+	struct cache_block_map_data *data = user;
+	isl_space *space, *access_domain, *cache_map_space;
+	isl_local_space *ls;
+	unsigned int n_array_dims;
+	unsigned int cache_block_size = data->cache_block_size;
+	isl_basic_map *bmap;
+	isl_map *cache_map;
+	isl_constraint *c;
+	int i;
+
+	n_array_dims = isl_map_n_out(map);
+	if(n_array_dims == 0){
+		data->res = isl_union_map_add_map(data->res, isl_map_copy(map));
+		return isl_stat_ok;
+	}
+
+	space = isl_map_get_space(map);
+	access_domain = isl_space_range(space);
+	cache_map_space = isl_space_from_domain(access_domain);
+	cache_map_space = isl_space_add_dims(cache_map_space, isl_dim_out, n_array_dims);
+	bmap = isl_basic_map_universe(cache_map_space);
+	ls = isl_local_space_from_space(cache_map_space);
+
+	for(i=0; i< n_array_dims - 1; i++){
+		c = isl_constraint_alloc_equality(isl_local_space_copy(ls));
+		c = isl_constraint_set_coefficient_si(c, isl_dim_in, i, -1);
+		c = isl_constraint_set_coefficient_si(c, isl_dim_out, i, 1);
+		bmap = isl_basic_map_add_constraint(bmap, c);
+	}
+
+	c = isl_constraint_alloc_inequality(isl_local_space_copy(ls));
+    c = isl_constraint_set_coefficient_si(c, isl_dim_out, i, -1 * cache_block_size);
+    c = isl_constraint_set_coefficient_si(c, isl_dim_in, i, 1);
+    bmap = isl_basic_map_add_constraint(bmap, c);
+
+	c = isl_constraint_alloc_inequality(isl_local_space_copy(ls));
+    c = isl_constraint_set_coefficient_si(c, isl_dim_out, i,  cache_block_size);
+    c = isl_constraint_set_coefficient_si(c, isl_dim_in, i, -1);
+    c = isl_constraint_set_constant_si(c, cache_block_size - 1);
+    bmap = isl_basic_map_add_constraint(bmap, c);
+
+    cache_map = isl_map_from_basic_map(bmap);
+    map = isl_map_apply_range(map, cache_map);
+
+    data->res = isl_union_map_add_map(data->res, map);
+
+    return isl_stat_ok;
+}
+
+__isl_give isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *accesses, int cache_block_size)
+{
+
+	isl_space *space, *access_domain, *cache_map_space;
+	struct cache_block_map_data data = {cache_block_size};
+
+	space = isl_union_map_get_space(accesses);
+
+	data.res = isl_union_map_empty(space);
+	if (isl_union_map_foreach_map(accesses, &cache_block_map, &data) < 0 )
+		data.res = isl_union_map_free(data.res);
+
+	return data.res;
+
+}
 /* Extract a ppcg_scop from a pet_scop.
  *
  * The constructed ppcg_scop refers to elements from the pet_scop
@@ -912,6 +1035,12 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	for (i = 0; i < scop->n_independence; ++i)
 		ps->independence = isl_union_map_union(ps->independence,
 			isl_union_map_copy(scop->independences[i]->filter));
+
+	if(options->model_spatial_locality){
+		ps->cache_block_reads = map_array_accesses_to_cache_blocks(ps->reads, 5);
+		ps->cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, 5);
+		ps->cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, 5);
+	}
 
 	compute_tagger(ps);
 	compute_dependences(ps);
