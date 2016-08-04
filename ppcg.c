@@ -892,11 +892,15 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 	isl_union_map_free(ps->dep_forced);
 	isl_union_map_free(ps->tagged_dep_order);
 	isl_union_map_free(ps->dep_order);
-	isl_union_map_free(ps->cache_block_dep_flow);
-	isl_union_map_free(ps->cache_block_dep_rar);
-	isl_union_map_free(ps->cache_block_may_writes);
-	isl_union_map_free(ps->cache_block_must_writes);
-	isl_union_map_free(ps->cache_block_reads);
+
+	if(ps->options->model_spatial_locality){
+		isl_union_map_free(ps->cache_block_dep_flow);
+		isl_union_map_free(ps->cache_block_dep_rar);
+		isl_union_map_free(ps->cache_block_may_writes);
+		isl_union_map_free(ps->cache_block_must_writes);
+		isl_union_map_free(ps->cache_block_reads);
+	}
+
 	isl_schedule_free(ps->schedule);
 	isl_union_pw_multi_aff_free(ps->tagger);
 	isl_union_map_free(ps->independence);
@@ -940,6 +944,9 @@ static isl_stat cache_block_map(__isl_take isl_map *map, void *user)
 	access_domain = isl_space_range(space);
 	cache_map_space = isl_space_from_domain(access_domain);
 	cache_map_space = isl_space_add_dims(cache_map_space, isl_dim_out, n_array_dims);
+	isl_space_set_tuple_name(cache_map_space, isl_dim_out,
+			isl_space_get_tuple_name(cache_map_space, isl_dim_in));
+
 	bmap = isl_basic_map_universe(cache_map_space);
 	ls = isl_local_space_from_space(cache_map_space);
 
