@@ -642,9 +642,13 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 	sc = isl_schedule_constraints_set_validity(sc, validity);
 
 	if(ps->options->model_spatial_locality){
-		proximity = isl_union_map_copy(ps->dep_flow);
-		proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->cache_block_dep_flow));
-//		proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->cache_block_dep_rar));
+//		proximity = isl_union_map_copy(ps->tagged_dep_flow);
+//		isl_union_map_dump(proximity);
+//		proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->tagged_cache_block_dep_flow));
+//		isl_union_map_dump(proximity);
+//		proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->tagged_cache_block_dep_rar));
+		proximity = isl_union_map_copy(ps->tagged_cache_block_dep_flow);
+		isl_union_map_dump(proximity);
 	}
 	else
 		proximity = isl_union_map_copy(ps->dep_flow);

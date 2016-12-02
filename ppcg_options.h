@@ -45,6 +45,9 @@ struct ppcg_options {
 	/* Model spatial locality while finding transformations. */
 	int model_spatial_locality;
 
+	/* Use only cache block dependences */
+	int only_cache_block_deps;
+
 	/* The target we generate code for. */
 	int target;
 
