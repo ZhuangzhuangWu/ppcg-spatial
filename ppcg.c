@@ -344,7 +344,7 @@ static __isl_give isl_union_map *project_out_tags(
  */
 static void compute_tagger(struct ppcg_scop *ps)
 {
-	isl_union_map *tagged;
+	isl_union_map *tagged, *array_tag;
 	isl_union_pw_multi_aff *tagger;
 
 	tagged = isl_union_map_copy(ps->tagged_reads);
@@ -353,6 +353,12 @@ static void compute_tagger(struct ppcg_scop *ps)
 	tagged = isl_union_map_union(tagged,
 				isl_union_map_copy(ps->tagged_must_kills));
 	tagged = isl_union_map_universe(tagged);
+
+	array_tag = isl_union_map_copy(tagged);
+	ps->array_tagger = isl_union_map_domain_factor_range(array_tag);
+
+	isl_union_map_dump(ps->array_tagger);
+
 	tagged = isl_union_set_unwrap(isl_union_map_domain(tagged));
 
 	tagger = isl_union_map_domain_map_union_pw_multi_aff(tagged);
@@ -705,6 +711,67 @@ static void compute_flow_dep(struct ppcg_scop *ps)
 	isl_union_flow_free(flow);
 }
 
+struct spatial_deps_data {
+	struct ppcg_scop *ps;
+	isl_union_map *res;
+};
+
+static isl_stat compute_cache_block_dep(__isl_take isl_map *cache_block_map, void *user)
+{
+	struct spatial_deps_data *data = user;
+	struct ppcg_scop *ps = data->ps;
+	isl_union_access_info *access;
+	isl_union_flow *flow;
+	isl_union_map *dep, *acc;
+	isl_space *space;
+	isl_union_pw_multi_aff *tagger;
+	isl_schedule *schedule;
+
+	acc = isl_union_map_from_map(cache_block_map);
+	isl_union_map_dump(acc);
+
+	tagger = isl_union_pw_multi_aff_copy(ps->tagger);
+	schedule = isl_schedule_copy(ps->schedule);
+	schedule = isl_schedule_pullback_union_pw_multi_aff(schedule, tagger);
+
+	access = isl_union_access_info_from_sink(isl_union_map_copy(acc));
+	access = isl_union_access_info_set_must_source(access,
+			isl_union_map_copy(acc));
+	access = isl_union_access_info_set_may_source(access,
+			isl_union_map_copy(acc));
+	access = isl_union_access_info_set_schedule(access,
+				isl_schedule_copy(schedule));
+	flow = isl_union_access_info_compute_flow(access);
+
+	dep = isl_union_flow_get_may_dependence(flow);
+	isl_union_map_dump(dep);
+
+	data->res = isl_union_map_union(data->res, dep);
+	isl_union_flow_free(flow);
+
+	return isl_stat_ok;
+}
+
+/* Compute the spatial locality dependences
+  */
+static void compute_spatial_locality_deps(struct ppcg_scop *ps)
+{
+	struct spatial_deps_data data = {ps};
+	isl_space *space;
+	space = isl_union_map_get_space(ps->dep_flow);
+
+	data.res = isl_union_map_empty(space);
+	if(isl_union_map_foreach_map(ps->tagged_cache_block_reads, &compute_cache_block_dep, &data) < 0)
+		data.res = isl_union_map_free(data.res);
+
+	if(isl_union_map_foreach_map(ps->tagged_cache_block_must_writes, &compute_cache_block_dep, &data) < 0)
+		data.res = isl_union_map_free(data.res);
+
+	ps->tagged_cache_block_dep_flow = data.res;
+	ps->cache_block_dep_flow = isl_union_map_copy(ps->tagged_cache_block_dep_flow);
+	ps->cache_block_dep_flow = isl_union_map_factor_domain(ps->cache_block_dep_flow);
+}
+
 /* Compute the spatial locality dependences
   */
 static void compute_spatial_locality_flow_dep(struct ppcg_scop *ps)
@@ -775,8 +842,9 @@ static void compute_dependences(struct ppcg_scop *scop)
 		compute_flow_dep(scop);
 
 	if (scop->options->model_spatial_locality){
-		compute_spatial_locality_flow_dep(scop);
-		compute_spatial_locality_rar_dep(scop);
+		compute_spatial_locality_deps(scop);
+//		compute_spatial_locality_flow_dep(scop);
+//		compute_spatial_locality_rar_dep(scop);
 	}
 
 	may_source = isl_union_map_union(isl_union_map_copy(scop->may_writes),
@@ -948,7 +1016,7 @@ static isl_stat cache_block_map(__isl_take isl_map *map, void *user)
 
 	n_array_dims = isl_map_n_out(map);
 	if(n_array_dims == 0){
-		data->res = isl_union_map_add_map(data->res, isl_map_copy(map));
+//		data->res = isl_union_map_add_map(data->res, isl_map_copy(map));
 		return isl_stat_ok;
 	}
 
@@ -1053,14 +1121,43 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 			isl_union_map_copy(scop->independences[i]->filter));
 
 	if(options->model_spatial_locality){
-		ps->cache_block_reads = map_array_accesses_to_cache_blocks(ps->reads, 5);
-		ps->cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, 5);
-		ps->cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, 5);
+		ps->cache_block_reads = map_array_accesses_to_cache_blocks(ps->reads, 2);
+		ps->cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, 2);
+		ps->cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, 2);
+
+		ps->tagged_cache_block_reads = map_array_accesses_to_cache_blocks(ps->tagged_reads, 2);
+		ps->tagged_cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->tagged_may_writes, 2);
+		ps->tagged_cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->tagged_must_writes, 2);
+	}
+
+	isl_union_map_dump(ps->cache_block_reads);
+	isl_union_map_dump(ps->may_writes);
+	isl_union_map_dump(ps->must_writes);
+	isl_union_map_dump(ps->cache_block_may_writes);
+	isl_union_map_dump(ps->cache_block_must_writes);
+
+	isl_union_map_dump(ps->tagged_reads);
+
+	if(options->only_cache_block_deps){
+		ps->reads = map_array_accesses_to_cache_blocks(ps->reads, 2);
+		ps->may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, 2);
+		ps->must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, 2);
+		ps->must_kills = map_array_accesses_to_cache_blocks(ps->must_kills, 2);
+		ps->tagged_reads = map_array_accesses_to_cache_blocks(ps->tagged_reads, 2);
+		ps->tagged_may_writes = map_array_accesses_to_cache_blocks(ps->tagged_may_writes, 2);
+		ps->tagged_must_writes = map_array_accesses_to_cache_blocks(ps->tagged_must_writes, 2);
+		ps->tagged_must_kills = map_array_accesses_to_cache_blocks(ps->tagged_must_kills, 2);
 	}
 
 	compute_tagger(ps);
 	compute_dependences(ps);
 	eliminate_dead_code(ps);
+
+	isl_union_map_dump(ps->cache_block_reads);
+	isl_union_map_dump(ps->tagged_dep_flow);
+	isl_union_map_dump(ps->dep_false);
+	isl_union_map_dump(ps->cache_block_dep_rar);
+	isl_union_map_dump(ps->cache_block_dep_flow);
 
 	if (!ps->context || !ps->domain || !ps->call || !ps->reads ||
 	    !ps->may_writes || !ps->must_writes || !ps->tagged_must_kills ||
