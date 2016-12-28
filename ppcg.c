@@ -349,7 +349,7 @@ static void compute_tagger(struct ppcg_scop *ps)
 	array_tag = isl_union_map_copy(tagged);
 	ps->array_tagger = isl_union_map_domain_factor_range(array_tag);
 
-	isl_union_map_dump(ps->array_tagger);
+	//isl_union_map_dump(ps->array_tagger);
 
 	tagged = isl_union_set_unwrap(isl_union_map_domain(tagged));
 
@@ -716,7 +716,7 @@ static isl_stat compute_cache_block_dep(__isl_take isl_map *cache_block_map, voi
 	isl_schedule *schedule;
 
 	acc = isl_union_map_from_map(cache_block_map);
-	isl_union_map_dump(acc);
+	//isl_union_map_dump(acc);
 
 	tagger = isl_union_pw_multi_aff_copy(ps->tagger);
 	schedule = isl_schedule_copy(ps->schedule);
@@ -732,7 +732,7 @@ static isl_stat compute_cache_block_dep(__isl_take isl_map *cache_block_map, voi
 	flow = isl_union_access_info_compute_flow(access);
 
 	dep = isl_union_flow_get_may_dependence(flow);
-	isl_union_map_dump(dep);
+	//isl_union_map_dump(dep);
 
 	data->res = isl_union_map_union(data->res, dep);
 	isl_union_flow_free(flow);
@@ -834,6 +834,8 @@ static void compute_dependences(struct ppcg_scop *scop)
 //		compute_spatial_locality_flow_dep(scop);
 //		compute_spatial_locality_rar_dep(scop);
 	}
+	//isl_union_map_dump(scop->dep_flow);
+	//isl_union_map_dump(scop->tagged_dep_flow);
 
 	may_source = isl_union_map_union(isl_union_map_copy(scop->may_writes),
 					isl_union_map_copy(scop->reads));
@@ -1141,11 +1143,11 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	compute_dependences(ps);
 	eliminate_dead_code(ps);
 
-	isl_union_map_dump(ps->cache_block_reads);
-	isl_union_map_dump(ps->tagged_dep_flow);
-	isl_union_map_dump(ps->dep_false);
-	isl_union_map_dump(ps->cache_block_dep_rar);
-	isl_union_map_dump(ps->cache_block_dep_flow);
+	// isl_union_map_dump2(ps->cache_block_reads);
+	// isl_union_map_dump2(ps->tagged_dep_flow);
+	// isl_union_map_dump2(ps->dep_false);
+	// isl_union_map_dump2(ps->cache_block_dep_rar);
+	// isl_union_map_dump2(ps->cache_block_dep_flow);
 
 	if (!ps->context || !ps->domain || !ps->call || !ps->reads ||
 	    !ps->may_writes || !ps->must_writes || !ps->tagged_must_kills ||
