@@ -664,6 +664,10 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 
 	sc = isl_schedule_constraints_set_proximity(sc,
 					proximity);
+	if (ps->cache_array_tagged_dep) {
+		sc = isl_schedule_constraints_set_spatial_proximity(sc,
+						ps->cache_array_tagged_dep);
+	}
 
 	return sc;
 }

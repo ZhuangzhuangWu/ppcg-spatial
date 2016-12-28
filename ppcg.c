@@ -29,6 +29,38 @@
 #include "opencl.h"
 #include "cpu.h"
 
+#define CACHE_SIZE 10
+
+#define isl_union_map_dump2(a) \
+  fprintf(stderr, "%s :: ", #a); \
+  isl_union_map_dump(a); \
+  fprintf(stderr, "\n");
+
+// #define isl_union_map_debug(a) \
+//   fprintf(stderr, "%s:%d in %s, %s\n  ", \
+//   		  __FILE__, __LINE__, __PRETTY_FUNCTION__, #a); \
+//   isl_union_map_dump(a);
+
+#define xDebug(type, a) \
+  fprintf(stderr, "%s:%d in %s, (%s) %s\n  ", \
+  		  __FILE__, __LINE__, __PRETTY_FUNCTION__, #type, #a); \
+  isl_ ## type ## _dump(a);
+
+#define isl_union_map_debug(a) xDebug(union_map, a)
+#define isl_union_set_debug(a) xDebug(union_set, a)
+#define isl_map_debug(a) xDebug(map, a)
+#define isl_set_debug(a) xDebug(set, a)
+#define isl_basic_map_debug(a) xDebug(basic_map, a)
+#define isl_basic_set_debug(a) xDebug(basic_set, a)
+#define isl_constraint_debug(a) xDebug(constraint, a)
+#define isl_aff_debug(a) xDebug(aff, a)
+#define isl_multi_aff(a) xDebug(multi_aff, a)
+#define isl_pw_aff(a) xDebug(pw_aff, a)
+#define isl_pw_multi_aff(a) xDebug(pw_multi_aff, a)
+#define isl_flow_debug(a) xDebug(flow, a)
+#define isl_union_flow_debug(a) xDebug(union_flow, a)
+#define isl_union_pw_multi_aff_debug(a) xDebug(union_pw_multi_aff, a)
+
 struct options {
 	struct pet_options *pet;
 	struct ppcg_options *ppcg;
@@ -358,6 +390,19 @@ static void compute_tagger(struct ppcg_scop *ps)
 	ps->tagger = tagger;
 }
 
+static void compute_array_tagger(struct ppcg_scop *ps)
+{
+	isl_union_map *tagged;
+
+	tagged = isl_union_map_copy(ps->cache_array_tagged_reads);
+	tagged = isl_union_map_union(tagged, isl_union_map_copy(ps->cache_array_tagged_may_writes));
+	tagged = isl_union_map_union(tagged, isl_union_map_copy(ps->cache_array_tagged_must_writes));
+
+	tagged = isl_union_map_universe(tagged);
+	tagged = isl_union_set_unwrap(isl_union_map_domain(tagged));
+	ps->cache_array_tagger = isl_union_map_domain_map_union_pw_multi_aff(tagged);
+}
+
 /* Compute the live out accesses, i.e., the writes that are
  * potentially not killed by any kills or any other writes, and
  * store them in ps->live_out.
@@ -448,6 +493,7 @@ static void compute_tagged_flow_dep_only(struct ppcg_scop *ps)
 	tagged_flow = isl_union_flow_get_may_dependence(flow);
 	tagged_flow = isl_union_map_subtract_domain(tagged_flow,
 				isl_union_map_domain(kills));
+
 	ps->tagged_dep_flow = tagged_flow;
 	live_in = isl_union_flow_get_may_no_source(flow);
 	ps->live_in = project_out_tags(live_in);
@@ -800,6 +846,66 @@ static void compute_spatial_locality_rar_dep(struct ppcg_scop *ps)
 	isl_union_flow_free(flow);
 }
 
+static void compute_adjacent_deps(struct ppcg_scop *ps)
+{
+	isl_union_access_info *access;
+	isl_union_flow *flow;
+
+	// Construct access info from adjacent accesses:
+	// reading next cell should depend on anything that accessed the _previous_ cell.
+	// similar for WAW, WAR? :
+	// writing next cell should depend on anything that accessed the _previous_ cell.
+	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->adjacent_reads));
+	access = isl_union_access_info_set_must_source(access,
+		isl_union_map_copy(ps->must_writes));
+	access = isl_union_access_info_set_may_source(access,
+		isl_union_map_copy(ps->may_writes));
+	access = isl_union_access_info_set_schedule(access,
+		isl_schedule_copy(ps->schedule));
+	flow = isl_union_access_info_compute_flow(access);
+	isl_union_map_dump(ps->adjacent_reads);
+	isl_union_map_dump(ps->must_writes);
+	isl_union_map_dump(ps->may_writes);
+	isl_union_flow_dump(flow);
+
+	ps->adjacent_dep_flow = isl_union_flow_get_may_dependence(flow);
+
+	// RAR
+	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->adjacent_reads));
+	access = isl_union_access_info_set_may_source(access,
+		isl_union_map_copy(ps->reads));
+	access = isl_union_access_info_set_schedule(access,
+		isl_schedule_copy(ps->schedule));
+	flow = isl_union_access_info_compute_flow(access);
+	
+	ps->adjacent_dep_rar = isl_union_flow_get_may_dependence(flow);
+
+	isl_union_map_dump(ps->adjacent_reads);
+	isl_union_map_dump(ps->reads);
+	isl_schedule_dump(ps->schedule);
+	isl_union_map_dump(ps->adjacent_dep_flow);
+
+	isl_union_flow_free(flow);
+}
+
+static void compute_cache_deps(struct ppcg_scop *ps)
+{
+	isl_union_access_info *access;
+	isl_union_flow *flow;
+
+	// Sinks are original sinks (reads for flow and RAR, writes for false).
+	// Let's keep only flow and RAR for now (they are not separable).
+	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->reads));
+	access = isl_union_access_info_set_may_source(access, isl_union_map_copy(ps->cache_accesses_from_may));
+	access = isl_union_access_info_set_must_source(access, isl_union_map_copy(ps->cache_accesses_from_must));
+	access = isl_union_access_info_set_schedule(access, isl_schedule_copy(ps->schedule));
+	flow = isl_union_access_info_compute_flow(access);
+
+	ps->cache_dep = isl_union_flow_get_may_dependence(flow);
+	ps->cache_dep = isl_union_map_union(ps->cache_dep, isl_union_flow_get_must_dependence(flow));
+	isl_union_flow_free(flow);
+}
+
 /* Compute the dependences of the program represented by "scop".
  * Store the computed potential flow dependences
  * in scop->dep_flow and the reads with potentially no corresponding writes in
@@ -836,6 +942,8 @@ static void compute_dependences(struct ppcg_scop *scop)
 	}
 	//isl_union_map_dump(scop->dep_flow);
 	//isl_union_map_dump(scop->tagged_dep_flow);
+	//compute_adjacent_deps(scop);
+	compute_cache_deps(scop);
 
 	may_source = isl_union_map_union(isl_union_map_copy(scop->may_writes),
 					isl_union_map_copy(scop->reads));
@@ -851,6 +959,126 @@ static void compute_dependences(struct ppcg_scop *scop)
 	scop->dep_false = isl_union_flow_get_may_dependence(flow);
 	scop->dep_false = isl_union_map_coalesce(scop->dep_false);
 	isl_union_flow_free(flow);
+}
+
+static __isl_give isl_union_flow *compute_union_flow(
+	__isl_take isl_union_map *sink,
+	__isl_take isl_union_map *must_source,
+	__isl_take isl_union_map *may_source,
+	__isl_take isl_schedule *schedule)
+{
+	isl_union_access_info *ai;
+	ai = isl_union_access_info_from_sink(sink);
+	ai = isl_union_access_info_set_must_source(ai, must_source);
+	ai = isl_union_access_info_set_may_source(ai, may_source);
+	ai = isl_union_access_info_set_schedule(ai, schedule);
+	return isl_union_access_info_compute_flow(ai);
+}
+
+static void add_dependences(
+	struct ppcg_scop *ps,
+	__isl_take isl_union_map *sink,
+	__isl_take isl_union_map *must_source,
+	__isl_take isl_union_map *may_source,
+	__isl_take isl_schedule *schedule)
+{
+	isl_union_flow *flow;
+	isl_union_map *dep;
+
+	flow = compute_union_flow(sink, must_source, may_source, schedule);
+	dep = isl_union_flow_get_must_dependence(flow);
+	ps->cache_array_tagged_dep = isl_union_map_union(
+		ps->cache_array_tagged_dep, dep);
+
+	dep = isl_union_flow_get_may_dependence(flow);
+	ps->cache_array_tagged_dep = isl_union_map_union(
+		ps->cache_array_tagged_dep, dep);
+
+	isl_union_flow_free(flow);
+}
+
+static void compute_array_tagged_dependences(struct ppcg_scop *ps)
+{
+	//isl_union_access_info *ai;
+	isl_schedule *sched;
+	//isl_union_map *dep;
+	//isl_union_flow *fl;
+	isl_space *space;
+	isl_union_map *all_writes;
+
+	sched = isl_schedule_copy(ps->schedule);
+	sched = isl_schedule_pullback_union_pw_multi_aff(sched, ps->cache_array_tagger);
+
+	space = isl_union_set_get_space(ps->domain);
+	ps->cache_array_tagged_dep = isl_union_map_empty(isl_space_copy(space));
+
+	isl_union_map_debug(ps->cache_array_tagged_reads);
+	isl_union_map_debug(ps->cache_array_tagged_must_writes);
+	isl_union_map_debug(ps->cache_array_tagged_may_writes);
+
+	// RAW (flow)
+	add_dependences(ps,
+					isl_union_map_copy(ps->cache_array_tagged_reads),
+					isl_union_map_copy(ps->cache_array_tagged_must_writes),
+					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_may_writes),
+					isl_schedule_copy(sched));
+	// RAR (output)
+	add_dependences(ps,
+					isl_union_map_copy(ps->cache_array_tagged_reads),
+					isl_union_map_copy(ps->cache_array_tagged_reads),//isl_union_map_empty(isl_space_copy(space)),
+					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_reads),
+					isl_schedule_copy(sched));
+
+	// WAR (anti/false)
+	all_writes = isl_union_map_union(
+			isl_union_map_copy(ps->cache_array_tagged_may_writes),
+			isl_union_map_copy(ps->cache_array_tagged_must_writes));
+	add_dependences(ps,
+					isl_union_map_copy(all_writes),
+					isl_union_map_copy(ps->cache_array_tagged_reads),//isl_union_map_empty(isl_space_copy(space)),
+					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_reads),
+					isl_schedule_copy(sched));
+
+	// WAW (input/false)
+	add_dependences(ps,
+					all_writes,
+					isl_union_map_copy(ps->cache_array_tagged_must_writes),
+					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_may_writes),
+					sched);
+
+
+#if 0
+	// flow (RAW) deps
+	ai = isl_union_access_info_from_sink(isl_union_map_copy(ps->cache_array_tagged_reads));
+	ai = isl_union_access_info_set_must_source(ai, 
+			isl_union_map_copy(ps->cache_array_tagged_must_writes));
+	ai = isl_union_access_info_set_may_source(ai, 
+			isl_union_map_copy(ps->cache_array_tagged_may_writes));
+	ai = isl_union_access_info_set_schedule(ai, isl_schedule_copy(sched));
+	fl = isl_union_access_info_compute_flow(ai);
+	dep = isl_union_flow_get_must_dependence(fl);
+	if (!ps->cache_array_tagged_dep)
+		ps->cache_array_tagged_dep = dep;
+	else
+		ps->cache_array_tagged_dep = isl_union_map_union(ps->cache_array_tagged_dep, dep);
+	dep = isl_union_flow_get_may_dependence(fl);
+	ps->cache_array_tagged_dep = isl_union_map_union(ps->cache_array_tagged_dep, dep);
+	isl_union_flow_free(fl); 
+
+	// RAR deps
+	ai = isl_union_access_info_from_sink(isl_union_map_copy(ps->cache_array_tagged_reads));
+	ai = isl_union_access_info_set_must_source(ai, 
+			isl_union_map_copy(ps->cache_array_tagged_reads));
+	ai = isl_union_access_info_set_may_source(ai, 
+			isl_union_map_copy(ps->cache_array_tagged_reads));
+	ai = isl_union_access_info_set_schedule(ai, sched);
+	fl = isl_union_access_info_compute_flow(ai);
+	dep = isl_union_flow_get_must_dependence(fl);
+	ps->cache_array_tagged_dep = isl_union_map_union(ps->cache_array_tagged_dep, dep);
+	dep = isl_union_flow_get_may_dependence(fl);
+	ps->cache_array_tagged_dep = isl_union_map_union(ps->cache_array_tagged_dep, dep);
+	isl_union_flow_free(fl);
+#endif
 }
 
 /* Eliminate dead code from ps->domain.
@@ -971,6 +1199,16 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 		isl_union_map_free(ps->cache_block_reads);
 	}
 
+	// isl_union_map_free(ps->adjacent_reads);
+	// isl_union_map_free(ps->adjacent_may_writes);
+	// isl_union_map_free(ps->adjacent_must_writes);
+	// isl_union_map_free(ps->adjacent_dep_flow);
+	// isl_union_map_free(ps->adjacent_dep_rar);
+
+	isl_union_map_free(ps->cache_accesses_from_must);
+	isl_union_map_free(ps->cache_accesses_from_may);
+	isl_union_map_free(ps->cache_dep);
+
 	isl_schedule_free(ps->schedule);
 	isl_union_pw_multi_aff_free(ps->tagger);
 	isl_union_map_free(ps->independence);
@@ -1061,6 +1299,221 @@ __isl_give isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *acce
 	return data.res;
 
 }
+
+struct array_access_next_data
+{
+	isl_union_map *result;
+	int n_elements_forward;
+	int n_elements_backwards;
+};
+typedef struct array_access_next_data array_access_next_data;
+
+static isl_stat array_access_to_next_elements(__isl_take isl_map *map,
+	void *user)
+{
+	isl_space *access_space, *space;
+	isl_local_space *constraint_space;
+	isl_map *mapper, *mapped;
+	isl_constraint *constraint;
+	int i, n_dims;
+	array_access_next_data *data = user;
+	int n_elements_forward = data->n_elements_forward;
+	int n_elements_backwards = data->n_elements_backwards;
+
+	// Build the mapper space (range -> range).
+	access_space = isl_map_get_space(map);
+	access_space = isl_space_range(access_space);
+	space = isl_space_map_from_domain_and_range(isl_space_copy(access_space), access_space);
+	constraint_space = isl_local_space_from_space(isl_space_copy(space));
+
+	mapper = isl_map_universe(space);
+	// Equate all dimensions but last.
+	n_dims = isl_map_n_out(mapper);
+	for (i = 0; i < n_dims - 1; i++)
+	{
+		constraint = isl_constraint_alloc_equality(isl_local_space_copy(constraint_space));
+		constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, i, 1);
+		constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_out, i, -1);
+		mapper = isl_map_add_constraint(mapper, constraint);
+	}
+	// Last dim: i' >= i - n_elements_backwards and i' <= i + n_elements_forward, i.e.
+	// i' - i + n_elements_backwards >= 0 and i + n_elements_forward - i' >= 0.
+	// TODO: should we exclude the i'==i case?
+	// Maybe not, it will account for temporal locality, it holds for spatial, it may even
+	// help remove originl proximity constraints for simplifying the problem.
+#if 0	
+	constraint = isl_constraint_alloc_inequality(isl_local_space_copy(constraint_space));
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, n_dims - 1, -1);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_out, n_dims - 1, 1);
+	constraint = isl_constraint_set_constant_si(constraint, n_elements_backwards);
+	mapper = isl_map_add_constraint(mapper, constraint);
+	constraint = isl_constraint_alloc_inequality(constraint_space);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, n_dims - 1, 1);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_out, n_dims - 1, -1);
+	constraint = isl_constraint_set_constant_si(constraint, n_elements_forward);
+	mapper = isl_map_add_constraint(mapper, constraint);
+#endif
+
+#if 0
+	// tmp: add negative
+	constraint = isl_constraint_alloc_equality(isl_local_space_copy(constraint_space));
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, n_dims - 1, -1);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_out, n_dims - 1, 1);
+	constraint = isl_constraint_set_constant_si(constraint, -n_elements_forward);
+	isl_map *mapper2 = isl_map_copy(mapper);
+	mapper2 = isl_map_add_constraint(mapper2, constraint);
+	mapped = isl_map_apply_range(isl_map_copy(map), mapper2);
+	mapped = isl_map_intersect_range(mapped, isl_map_range(isl_map_copy(map)));
+	data->result = isl_union_map_add_map(data->result, mapped);
+#endif
+
+	constraint = isl_constraint_alloc_equality(constraint_space);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, n_dims - 1, -1);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_out, n_dims - 1, 1);
+	constraint = isl_constraint_set_constant_si(constraint, n_elements_forward);
+	mapper = isl_map_add_constraint(mapper, constraint);
+
+	// tmp: add original
+	data->result = isl_union_map_add_map(data->result, isl_map_copy(map));
+// #endif
+
+	mapped = isl_map_apply_range(isl_map_copy(map), mapper);
+	mapped = isl_map_intersect_range(mapped, isl_map_range(map));
+	data->result = isl_union_map_add_map(data->result, mapped);
+
+	// if (mapped && !data->result) return isl_stat_error;	
+
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *map_array_accesses_to_next_elements(
+	__isl_keep isl_union_map *access)
+{
+	isl_space *space;
+	isl_union_map *mapped;
+
+	space = isl_union_map_get_space(access); // get the parameteric space
+	mapped = isl_union_map_empty(space);
+	array_access_next_data data = {mapped, 42, 0};
+
+	if (isl_union_map_foreach_map(access, &array_access_to_next_elements, &data) < 0)
+		isl_union_map_free(data.result);
+
+	return data.result;
+}
+
+static isl_stat array_access_to_next_element(__isl_take isl_map *map, 
+	void *user)
+{
+	isl_union_map **result_ptr;
+	isl_space *access_space, *space;
+	isl_local_space *constraint_space;
+	isl_map *mapper, *mapped;
+	isl_constraint *constraint;
+	int i, n_dims;
+
+	result_ptr = user;
+
+	access_space = isl_map_get_space(map);
+	access_space = isl_space_range(access_space);
+	space = isl_space_map_from_domain_and_range(isl_space_copy(access_space), access_space);
+	constraint_space = isl_local_space_from_space(isl_space_copy(space));
+
+	mapper = isl_map_universe(space);
+	// Equate all dimensions but last.
+	n_dims = isl_map_n_out(mapper);
+	for (i = 0; i < n_dims - 1; i++)
+	{
+		constraint = isl_constraint_alloc_equality(isl_local_space_copy(constraint_space));
+		constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, i, 1);
+		constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_out, i, -1);
+		mapper = isl_map_add_constraint(mapper, constraint);
+	}
+	// Last dim: i' = i-1.
+	constraint = isl_constraint_alloc_equality(constraint_space);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, n_dims - 1, 1);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_out, n_dims - 1, -1);
+	constraint = isl_constraint_set_constant_si(constraint, -1);
+	mapper = isl_map_add_constraint(mapper, constraint);
+
+	mapped = isl_map_apply_range(isl_map_copy(map), mapper);
+	// The next line makes the access relation to only hold for the array cells
+	// accessed by the original statement.  Although it's more "correct", it
+	// may make more sense for locality to keep the accesses outside the original
+	// cells to reflect that the following element may be in the cache already.
+	// Will it become live-out?
+	mapped = isl_map_intersect_range(mapped, isl_map_range(map));
+	*result_ptr = isl_union_map_add_map(*result_ptr, mapped);
+
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *map_array_accesses_to_next_element(
+    __isl_keep isl_union_map *accesses)
+{
+	isl_space *space;
+	isl_union_map *mapped;
+
+	space = isl_union_map_get_space(accesses); // get the parameteric space
+	mapped = isl_union_map_empty(space);
+
+	if (isl_union_map_foreach_map(accesses, &array_access_to_next_element, &mapped) < 0)
+		isl_union_map_free(mapped);
+
+	return mapped;
+}
+
+isl_stat map_wrap_with_array_name(__isl_take isl_map *map, void *user)
+{
+	isl_space *space, *map_space;
+	isl_set *set, *domain_set;
+	isl_map *domain_map;
+	isl_id *array_id;
+	isl_union_map **result = user;
+
+	if (isl_map_domain_is_wrapping(map))
+		return isl_stat_error;
+
+#if 0
+	map_space = isl_map_get_space(map);
+	array_id = isl_space_get_tuple_id(map_space, isl_dim_out);
+	space = isl_space_params(map_space);
+	space = isl_space_set_from_params(space);
+	space = isl_space_set_tuple_id(space, isl_dim_set, array_id);
+	set = isl_set_universe(space);
+	domain_map = isl_map_from_domain_and_range(isl_map_domain(isl_map_copy(map)),
+											   set);
+	domain_set = isl_map_wrap(domain_map);
+	isl_union_map_product
+	map = isl_map_from_domain_and_range(domain_set, isl_map_range(map));
+#endif
+
+	map_space = isl_map_get_space(map);
+	array_id = isl_space_get_tuple_id(map_space, isl_dim_out);
+	space = isl_space_params(map_space);
+	space = isl_space_set_tuple_id(space, isl_dim_in, array_id);
+	isl_map *mult = isl_map_identity(space);
+	map = isl_map_product(map, mult);
+	map = isl_map_range_factor_domain(map);
+
+	*result = isl_union_map_add_map(*result, map);
+
+	return isl_stat_ok;
+}
+
+__isl_give isl_union_map *union_wrap_with_array_name(__isl_keep isl_union_map *union_map)
+{
+	isl_union_map *result;
+	isl_space *space;
+
+	space = isl_union_map_get_space(union_map);
+	result = isl_union_map_empty(space);
+
+	if (isl_union_map_foreach_map(union_map, &map_wrap_with_array_name, &result) != isl_stat_ok)
+		return NULL;
+	return result;
+}
+
 /* Extract a ppcg_scop from a pet_scop.
  *
  * The constructed ppcg_scop refers to elements from the pet_scop
@@ -1111,33 +1564,48 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 			isl_union_map_copy(scop->independences[i]->filter));
 
 	if(options->model_spatial_locality){
-		ps->cache_block_reads = map_array_accesses_to_cache_blocks(ps->reads, 2);
-		ps->cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, 2);
-		ps->cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, 2);
+		ps->cache_block_reads = map_array_accesses_to_cache_blocks(ps->reads, CACHE_SIZE);
+		ps->cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, CACHE_SIZE);
+		ps->cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, CACHE_SIZE);
 
-		ps->tagged_cache_block_reads = map_array_accesses_to_cache_blocks(ps->tagged_reads, 2);
-		ps->tagged_cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->tagged_may_writes, 2);
-		ps->tagged_cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->tagged_must_writes, 2);
+		ps->tagged_cache_block_reads = map_array_accesses_to_cache_blocks(ps->tagged_reads, CACHE_SIZE);
+		ps->tagged_cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->tagged_may_writes, CACHE_SIZE);
+		ps->tagged_cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->tagged_must_writes, CACHE_SIZE);
 	}
 
-	isl_union_map_dump(ps->cache_block_reads);
-	isl_union_map_dump(ps->may_writes);
-	isl_union_map_dump(ps->must_writes);
-	isl_union_map_dump(ps->cache_block_may_writes);
-	isl_union_map_dump(ps->cache_block_must_writes);
+	//ps->adjacent_reads = map_array_accesses_to_next_element(ps->reads);
+	//ps->adjacent_may_writes = map_array_accesses_to_next_element(ps->may_writes);
+	//ps->adjacent_must_writes = map_array_accesses_to_next_element(ps->must_writes);
 
-	isl_union_map_dump(ps->tagged_reads);
+	ps->cache_accesses_from_must = map_array_accesses_to_next_elements(ps->must_writes);
+	ps->cache_accesses_from_may = map_array_accesses_to_next_elements(ps->may_writes);
+	ps->cache_accesses_from_may = isl_union_map_union(ps->cache_accesses_from_may,
+					map_array_accesses_to_next_elements(ps->reads));
 
+	ps->cache_array_tagged_reads = union_wrap_with_array_name(
+		map_array_accesses_to_next_elements(ps->reads));
+	ps->cache_array_tagged_may_writes = union_wrap_with_array_name(
+		map_array_accesses_to_next_elements(ps->may_writes));
+	ps->cache_array_tagged_must_writes = union_wrap_with_array_name(
+		map_array_accesses_to_next_elements(ps->must_writes));
+
+	compute_array_tagger(ps);
+	compute_array_tagged_dependences(ps);
+
+	isl_union_map_debug(ps->cache_array_tagged_dep);
+
+#if 0
 	if(options->only_cache_block_deps){
-		ps->reads = map_array_accesses_to_cache_blocks(ps->reads, 2);
-		ps->may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, 2);
-		ps->must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, 2);
-		ps->must_kills = map_array_accesses_to_cache_blocks(ps->must_kills, 2);
-		ps->tagged_reads = map_array_accesses_to_cache_blocks(ps->tagged_reads, 2);
-		ps->tagged_may_writes = map_array_accesses_to_cache_blocks(ps->tagged_may_writes, 2);
-		ps->tagged_must_writes = map_array_accesses_to_cache_blocks(ps->tagged_must_writes, 2);
-		ps->tagged_must_kills = map_array_accesses_to_cache_blocks(ps->tagged_must_kills, 2);
+		ps->reads = map_array_accesses_to_cache_blocks(ps->reads, CACHE_SIZE);
+		ps->may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, CACHE_SIZE);
+		ps->must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, CACHE_SIZE);
+		ps->must_kills = map_array_accesses_to_cache_blocks(ps->must_kills, CACHE_SIZE);
+		ps->tagged_reads = map_array_accesses_to_cache_blocks(ps->tagged_reads, CACHE_SIZE);
+		ps->tagged_may_writes = map_array_accesses_to_cache_blocks(ps->tagged_may_writes, CACHE_SIZE);
+		ps->tagged_must_writes = map_array_accesses_to_cache_blocks(ps->tagged_must_writes, CACHE_SIZE);
+		ps->tagged_must_kills = map_array_accesses_to_cache_blocks(ps->tagged_must_kills, CACHE_SIZE);
 	}
+#endif
 
 	compute_tagger(ps);
 	compute_dependences(ps);
