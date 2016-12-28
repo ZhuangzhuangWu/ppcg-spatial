@@ -648,10 +648,19 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 //		isl_union_map_dump(proximity);
 //		proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->tagged_cache_block_dep_rar));
 		proximity = isl_union_map_copy(ps->tagged_cache_block_dep_flow);
-		isl_union_map_dump(proximity);
+		// isl_union_map_dump(proximity);
 	}
 	else
 		proximity = isl_union_map_copy(ps->dep_flow);
+
+	//fprintf(stderr, "in CPU\n");
+	//isl_union_map_dump(ps->adjacent_dep_flow);
+	//isl_union_map_dump(ps->adjacent_dep_rar);
+	//proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->adjacent_dep_flow));
+	//proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->adjacent_dep_rar));
+	
+	//proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->cache_dep));
+	//proximity = isl_union_map_copy(ps->cache_dep);
 
 	sc = isl_schedule_constraints_set_proximity(sc,
 					proximity);
