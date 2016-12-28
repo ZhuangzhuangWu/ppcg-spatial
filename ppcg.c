@@ -29,21 +29,16 @@
 #include "opencl.h"
 #include "cpu.h"
 
-#define CACHE_SIZE 10
-
-#define isl_union_map_dump2(a) \
-  fprintf(stderr, "%s :: ", #a); \
-  isl_union_map_dump(a); \
-  fprintf(stderr, "\n");
+#define CACHE_SIZE 32
 
 // #define isl_union_map_debug(a) \
 //   fprintf(stderr, "%s:%d in %s, %s\n  ", \
-//   		  __FILE__, __LINE__, __PRETTY_FUNCTION__, #a); \
+//	     __FILE__, __LINE__, __PRETTY_FUNCTION__, #a); \
 //   isl_union_map_dump(a);
 
 #define xDebug(type, a) \
   fprintf(stderr, "%s:%d in %s, (%s) %s\n  ", \
-  		  __FILE__, __LINE__, __PRETTY_FUNCTION__, #type, #a); \
+	  __FILE__, __LINE__, __PRETTY_FUNCTION__, #type, #a); \
   isl_ ## type ## _dump(a);
 
 #define isl_union_map_debug(a) xDebug(union_map, a)
@@ -60,6 +55,7 @@
 #define isl_flow_debug(a) xDebug(flow, a)
 #define isl_union_flow_debug(a) xDebug(union_flow, a)
 #define isl_union_pw_multi_aff_debug(a) xDebug(union_pw_multi_aff, a)
+#define isl_space_debug(a) xDebug(space, a)
 
 struct options {
 	struct pet_options *pet;
@@ -877,7 +873,7 @@ static void compute_adjacent_deps(struct ppcg_scop *ps)
 	access = isl_union_access_info_set_schedule(access,
 		isl_schedule_copy(ps->schedule));
 	flow = isl_union_access_info_compute_flow(access);
-	
+
 	ps->adjacent_dep_rar = isl_union_flow_get_may_dependence(flow);
 
 	isl_union_map_dump(ps->adjacent_reads);
@@ -986,6 +982,7 @@ static void add_dependences(
 	isl_union_map *dep;
 
 	flow = compute_union_flow(sink, must_source, may_source, schedule);
+	isl_union_flow_debug(flow);
 	dep = isl_union_flow_get_must_dependence(flow);
 	ps->cache_array_tagged_dep = isl_union_map_union(
 		ps->cache_array_tagged_dep, dep);
@@ -996,6 +993,8 @@ static void add_dependences(
 
 	isl_union_flow_free(flow);
 }
+
+static isl_union_map *union_wrap_with_array_name(isl_union_map *);
 
 static void compute_array_tagged_dependences(struct ppcg_scop *ps)
 {
@@ -1025,7 +1024,7 @@ static void compute_array_tagged_dependences(struct ppcg_scop *ps)
 	// RAR (output)
 	add_dependences(ps,
 					isl_union_map_copy(ps->cache_array_tagged_reads),
-					isl_union_map_copy(ps->cache_array_tagged_reads),//isl_union_map_empty(isl_space_copy(space)),
+					isl_union_map_copy(ps->cache_array_tagged_reads),
 					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_reads),
 					isl_schedule_copy(sched));
 
@@ -1035,7 +1034,7 @@ static void compute_array_tagged_dependences(struct ppcg_scop *ps)
 			isl_union_map_copy(ps->cache_array_tagged_must_writes));
 	add_dependences(ps,
 					isl_union_map_copy(all_writes),
-					isl_union_map_copy(ps->cache_array_tagged_reads),//isl_union_map_empty(isl_space_copy(space)),
+					isl_union_map_copy(ps->cache_array_tagged_reads),
 					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_reads),
 					isl_schedule_copy(sched));
 
@@ -1044,41 +1043,34 @@ static void compute_array_tagged_dependences(struct ppcg_scop *ps)
 					all_writes,
 					isl_union_map_copy(ps->cache_array_tagged_must_writes),
 					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_may_writes),
-					sched);
+					isl_schedule_copy(sched));
 
+	isl_space_free(space);
 
-#if 0
-	// flow (RAW) deps
-	ai = isl_union_access_info_from_sink(isl_union_map_copy(ps->cache_array_tagged_reads));
-	ai = isl_union_access_info_set_must_source(ai, 
-			isl_union_map_copy(ps->cache_array_tagged_must_writes));
-	ai = isl_union_access_info_set_may_source(ai, 
-			isl_union_map_copy(ps->cache_array_tagged_may_writes));
-	ai = isl_union_access_info_set_schedule(ai, isl_schedule_copy(sched));
-	fl = isl_union_access_info_compute_flow(ai);
-	dep = isl_union_flow_get_must_dependence(fl);
-	if (!ps->cache_array_tagged_dep)
-		ps->cache_array_tagged_dep = dep;
-	else
-		ps->cache_array_tagged_dep = isl_union_map_union(ps->cache_array_tagged_dep, dep);
-	dep = isl_union_flow_get_may_dependence(fl);
-	ps->cache_array_tagged_dep = isl_union_map_union(ps->cache_array_tagged_dep, dep);
-	isl_union_flow_free(fl); 
-
-	// RAR deps
-	ai = isl_union_access_info_from_sink(isl_union_map_copy(ps->cache_array_tagged_reads));
-	ai = isl_union_access_info_set_must_source(ai, 
-			isl_union_map_copy(ps->cache_array_tagged_reads));
-	ai = isl_union_access_info_set_may_source(ai, 
-			isl_union_map_copy(ps->cache_array_tagged_reads));
-	ai = isl_union_access_info_set_schedule(ai, sched);
-	fl = isl_union_access_info_compute_flow(ai);
-	dep = isl_union_flow_get_must_dependence(fl);
-	ps->cache_array_tagged_dep = isl_union_map_union(ps->cache_array_tagged_dep, dep);
-	dep = isl_union_flow_get_may_dependence(fl);
-	ps->cache_array_tagged_dep = isl_union_map_union(ps->cache_array_tagged_dep, dep);
-	isl_union_flow_free(fl);
-#endif
+	// Let's also compute original proximity dependences
+	// option 1: do not extend dimensionality
+	// option 2: extend dimensionality, and set all extended dimension values
+	//           to 0 (or a value outside the domain) so as to ensure dependences
+	//           between accesses exist (but do not overlap with induced deps)
+	isl_union_map *tagged_reads = union_wrap_with_array_name(ps->reads);
+	isl_union_map *tagged_must_writes =
+			union_wrap_with_array_name(ps->must_writes);
+	isl_union_map *tagged_may_writes =
+			union_wrap_with_array_name(ps->may_writes);
+	space = isl_union_map_get_space(tagged_reads);
+	// RAW (flow)
+	add_dependences(ps,
+					isl_union_map_copy(tagged_reads),
+					isl_union_map_copy(tagged_must_writes),
+					isl_union_map_empty(isl_space_copy(space)),
+					isl_schedule_copy(sched));
+	// RAR (output)
+	add_dependences(ps,
+					isl_union_map_copy(tagged_reads),
+					isl_union_map_copy(tagged_reads),
+					isl_union_map_empty(isl_space_copy(space)),
+					isl_schedule_copy(sched));
+	isl_space_free(space);
 }
 
 /* Eliminate dead code from ps->domain.
@@ -1341,7 +1333,7 @@ static isl_stat array_access_to_next_elements(__isl_take isl_map *map,
 	// TODO: should we exclude the i'==i case?
 	// Maybe not, it will account for temporal locality, it holds for spatial, it may even
 	// help remove originl proximity constraints for simplifying the problem.
-#if 0	
+#if 0
 	constraint = isl_constraint_alloc_inequality(isl_local_space_copy(constraint_space));
 	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, n_dims - 1, -1);
 	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_out, n_dims - 1, 1);
@@ -1373,6 +1365,7 @@ static isl_stat array_access_to_next_elements(__isl_take isl_map *map,
 	constraint = isl_constraint_set_constant_si(constraint, n_elements_forward);
 	mapper = isl_map_add_constraint(mapper, constraint);
 
+// #if 0
 	// tmp: add original
 	data->result = isl_union_map_add_map(data->result, isl_map_copy(map));
 // #endif
@@ -1381,10 +1374,14 @@ static isl_stat array_access_to_next_elements(__isl_take isl_map *map,
 	mapped = isl_map_intersect_range(mapped, isl_map_range(map));
 	data->result = isl_union_map_add_map(data->result, mapped);
 
-	// if (mapped && !data->result) return isl_stat_error;	
+	// if (mapped && !data->result) return isl_stat_error;
 
 	return isl_stat_ok;
 }
+
+static isl_union_map *extend_access_by_1(isl_union_map *);
+
+static isl_union_map *union_map_extend_accesses(isl_union_map *);
 
 static __isl_give isl_union_map *map_array_accesses_to_next_elements(
 	__isl_keep isl_union_map *access)
@@ -1394,15 +1391,18 @@ static __isl_give isl_union_map *map_array_accesses_to_next_elements(
 
 	space = isl_union_map_get_space(access); // get the parameteric space
 	mapped = isl_union_map_empty(space);
-	array_access_next_data data = {mapped, 42, 0};
+	array_access_next_data data = {mapped, CACHE_SIZE, 0};
 
-	if (isl_union_map_foreach_map(access, &array_access_to_next_elements, &data) < 0)
+	isl_union_map *extended = union_map_extend_accesses(access);
+
+	if (isl_union_map_foreach_map(extended, &array_access_to_next_elements, &data) < 0)
 		isl_union_map_free(data.result);
+	isl_union_map_free(extended);
 
 	return data.result;
 }
 
-static isl_stat array_access_to_next_element(__isl_take isl_map *map, 
+static isl_stat array_access_to_next_element(__isl_take isl_map *map,
 	void *user)
 {
 	isl_union_map **result_ptr;
@@ -1514,6 +1514,303 @@ __isl_give isl_union_map *union_wrap_with_array_name(__isl_keep isl_union_map *u
 	return result;
 }
 
+// {[i,j] -> [o1,o2] : o1 = i and o2 = j} =>
+// option 1
+// {[i,j,t] -> [o1,o2] : o1 = i and 32*t <= j <= 32*t + 31 and o2 = t}
+// option 2 (but if we project out, won't it become a division-access?)
+// {[i,j] -> [o1,o2] : Exists t : o1 = i and 32*t <= j <= 32*t + 31 and o2 = t}
+isl_stat acess_tile(__isl_take isl_basic_map *bmap)
+{
+	isl_space *space;
+	isl_local_space *local_space;
+	isl_constraint_list *constraint_list;
+	int nc, i, last_out_dim, last_in_dim, ndim;
+	isl_constraint *constraint;
+	isl_constraint *lower_bound, *upper_bound, *equality;
+	isl_basic_map *new_bmap;
+
+	// [i,j] -> [i,j,t] : i = i and 32*t <= [2*i-j] <= 32*t + 31
+	bmap = isl_basic_map_add_dims(bmap, isl_dim_in, 1);
+	space = isl_basic_map_get_space(bmap);
+	new_bmap = isl_basic_map_universe(isl_space_copy(space));
+	local_space = isl_local_space_from_space(space);
+
+	constraint_list = isl_basic_map_get_constraint_list(bmap);
+	nc = isl_constraint_list_n_constraint(constraint_list);
+	last_out_dim = isl_basic_map_n_out(bmap) - 1;
+	last_in_dim = isl_basic_map_n_in(bmap) - 1;
+	constraint = NULL;
+	for (i = 0; i < nc; i++)
+	{
+		isl_constraint *constr =
+				isl_constraint_list_get_constraint(constraint_list, i);
+		if (isl_constraint_is_equality(constr) == isl_bool_true &&
+		    isl_constraint_involves_dims(constr, isl_dim_out, last_out_dim, 1)
+				== isl_bool_true)
+		{
+			constraint = constr;
+		}
+		else
+		{
+			bmap = isl_basic_map_add_constraint(bmap, constraint);
+		}
+
+	}
+	if (constraint == NULL)
+	{
+		return isl_stat_error;
+	}
+	constraint = isl_constraint_set_coefficient_si(constraint,
+			isl_dim_out, last_out_dim, 0);
+	// iterate over all constraints until getting one featuring o2
+	// make coefficient for o2 zero and use this new constraint as a basis
+	//   for making strip-mining constraints with t
+
+	lower_bound = isl_constraint_alloc_inequality(
+			isl_local_space_copy(local_space));
+	upper_bound = isl_constraint_alloc_inequality(
+			isl_local_space_copy(local_space));
+	// copy all elements
+	ndim = isl_constraint_dim(constraint, isl_dim_all);
+	for (i = 0; i < ndim; i++)
+	{
+		isl_val *v = isl_constraint_get_coefficient_val(constraint, isl_dim_all, i);
+		lower_bound = isl_constraint_set_coefficient_val(lower_bound,
+				isl_dim_all, i, isl_val_copy(v));
+		upper_bound = isl_constraint_set_coefficient_val(upper_bound,
+				isl_dim_all, i, isl_val_neg(v));
+	}
+	isl_val *v = isl_constraint_get_constant_val(constraint);
+	lower_bound = isl_constraint_set_constant_val(lower_bound, isl_val_copy(v));
+	upper_bound = isl_constraint_set_constant_val(upper_bound,
+			isl_val_add_ui(isl_val_neg(v), 31));
+	lower_bound = isl_constraint_set_coefficient_si(lower_bound,
+			isl_dim_in, last_in_dim, -32);
+	upper_bound = isl_constraint_set_coefficient_si(upper_bound,
+			isl_dim_in, last_in_dim, 32);
+	isl_constraint_free(constraint);
+
+	constraint = isl_constraint_alloc_equality(local_space);
+	constraint = isl_constraint_set_coefficient_si(constraint,
+			isl_dim_in, last_in_dim, 1);
+	constraint = isl_constraint_set_coefficient_si(constraint,
+			isl_dim_out, last_out_dim, -1);
+
+	bmap = isl_basic_map_add_constraint(bmap, lower_bound);
+	bmap = isl_basic_map_add_constraint(bmap, upper_bound);
+	bmap = isl_basic_map_add_constraint(bmap, constraint);
+}
+
+static
+__isl_give isl_constraint *find_one_independent_access(__isl_keep isl_basic_map *bmap)
+{
+	int nc, n_in, i, j;
+	int *used_dim;
+	isl_constraint_list *constraint_list;
+	isl_local_space *local_space;
+	isl_constraint *constraint;
+
+	// FIXME: hack for now, find the input dimensions that was not
+	// referneced in the constraints yet
+
+	constraint_list = isl_basic_map_get_constraint_list(bmap);
+	nc = isl_constraint_list_n_constraint(constraint_list);
+	n_in = isl_basic_map_n_in(bmap);
+	used_dim = (int *) calloc(n_in, sizeof(int));
+	for (i = 0; i < nc; ++i)
+	{
+		isl_constraint *constraint =
+			isl_constraint_list_get_constraint(constraint_list, i);
+		for (j = 0; j < n_in; ++j)
+		{
+			if (isl_constraint_is_equality(constraint) != isl_bool_true)
+				continue;
+			if (isl_constraint_involves_dims(constraint, isl_dim_in, j, 1)
+					== isl_bool_true)
+				used_dim[j] = 1;
+		}
+		isl_constraint_free(constraint);
+	}
+	isl_constraint_list_free(constraint_list);
+	for (j = 0; j < n_in; ++j)
+		if (!used_dim[j])
+			break;
+	free(used_dim);
+	if (j == n_in)
+		return NULL;
+
+	local_space = isl_basic_map_get_local_space(bmap);
+	constraint = isl_constraint_alloc_equality(local_space);
+	constraint = isl_constraint_set_coefficient_si(
+			constraint, isl_dim_in, j, 1);
+	constraint = isl_constraint_set_coefficient_si(
+			constraint, isl_dim_out, 0, -1);
+	return constraint;
+}
+
+/* Add outer dimensions to the accesses to make them have the same
+ * dimensionalities as the surronding loop nests.  New accesses are
+ * linearly independent from old accesses.
+ * Does nothing for scalar accesses.
+ */
+static
+isl_stat basic_map_extend_accesses(__isl_take isl_basic_map *bmap,
+	void *user)
+{
+	int n_in, n_out, extra_dims, i;
+	isl_space *space;
+	isl_id *tuple_id;
+	isl_map *map = *(isl_map **)user;
+
+	n_out = isl_basic_map_n_out(bmap);
+	if (n_out == 0)		/* ignore scalar accesses */
+		return isl_stat_ok;
+
+	n_in = isl_basic_map_n_in(bmap);
+	if (n_in <= n_out)	/* enough dimensions already */
+		return isl_stat_ok;
+
+	extra_dims = n_in - n_out;
+
+	space = isl_basic_map_get_space(bmap);
+	tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
+	isl_space_free(space);
+	bmap = isl_basic_map_insert_dims(bmap, isl_dim_out, 0, extra_dims);
+	bmap = isl_basic_map_set_tuple_id(bmap, isl_dim_out, tuple_id);
+
+	/* TODO: Find linearly independent vectors */
+	for (i = 0; i < extra_dims; ++i)
+	{
+		isl_constraint *constraint = find_one_independent_access(bmap);
+		if (!constraint)
+		{
+			isl_basic_map_free(bmap);
+			return isl_stat_error;
+		}
+
+		bmap = isl_basic_map_add_constraint(bmap, constraint);
+	}
+
+	map = isl_map_union(map, isl_map_from_basic_map(bmap));
+	*(isl_map **)user = map;
+	return isl_stat_ok;
+}
+
+static
+isl_stat map_extend_accesses(__isl_take isl_map *map, void *user)
+{
+	isl_stat r;
+	isl_map *result;
+	isl_id *tuple_id;
+	isl_space *space;
+
+	if (!user)
+		return isl_stat_error;
+
+	if (!map)
+		return isl_stat_ok;
+
+	space = isl_map_get_space(map);
+	tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
+	space = isl_space_insert_dims(space, isl_dim_out, 0, 1);
+	space = isl_space_set_tuple_id(space, isl_dim_out, tuple_id);
+	result = isl_map_empty(space);
+	r = isl_map_foreach_basic_map(map, &basic_map_extend_accesses, &result);
+	isl_map_free(map);
+	if (r != isl_stat_ok)
+	{
+		isl_map_free(result);
+		return r;
+	}
+	*(isl_union_map **)user =
+		isl_union_map_add_map(*(isl_union_map **)user, result);
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *union_map_extend_accesses(__isl_keep isl_union_map *umap)
+{
+	isl_union_map *result;
+	isl_stat r;
+
+	if (umap == NULL)
+		return NULL;
+
+	result = isl_union_map_empty(isl_union_map_get_space(umap));
+	r = isl_union_map_foreach_map(umap, &map_extend_accesses, &result);
+	if (r != isl_stat_ok)
+	{
+		isl_union_map_free(result);
+		return NULL;
+	}
+	return result;
+}
+
+#if 0
+// {[i,j,k] -> [o1,o2] : o1 = i and o2 = j} =>
+// {[i,j,k] -> [o0,o1,o2] : o1 = i and o2 = j and o0 = k}
+// in a general case, k should be orthogonal to i and j
+isl_stat extend_access_by_1_bmap(__isl_take isl_basic_map *bmap,
+						void *user)
+{
+	isl_constraint *constraint;
+	isl_map *map = *(isl_map **)user;
+	isl_id *tuple_id;
+
+	isl_space *space = isl_basic_map_get_space(bmap);
+	tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
+	bmap = isl_basic_map_insert_dims(bmap, isl_dim_out, 0, 1);
+	bmap = isl_basic_map_set_tuple_id(bmap, isl_dim_out, tuple_id);
+
+	constraint = find_one_independent_access(bmap);
+	bmap = isl_basic_map_add_constraint(bmap, constraint);
+
+	map = isl_map_union(map, isl_map_from_basic_map(bmap));
+	*(isl_map **)user = map;
+	return isl_stat_ok;
+}
+
+isl_stat extend_access_by_1_map(__isl_take isl_map *map,
+							    void *user)
+{
+	isl_stat r;
+	isl_map *result;
+	isl_id *tuple_id;
+	isl_space *space = isl_map_get_space(map);
+
+	tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
+	space = isl_space_insert_dims(space, isl_dim_out, 0, 1);
+	space = isl_space_set_tuple_id(space, isl_dim_out, tuple_id);
+	result = isl_map_empty(space);
+	r = isl_map_foreach_basic_map(map, &extend_access_by_1_bmap, &result);
+	isl_map_free(map);
+	if (r != isl_stat_ok)
+	{
+		isl_map_free(result);
+		return r;
+	}
+	*(isl_union_map **)user = isl_union_map_add_map(*(isl_union_map **)user, result);
+	return isl_stat_ok;
+}
+
+__isl_give isl_union_map *extend_access_by_1(__isl_keep isl_union_map *umap)
+{
+	isl_union_map *result;
+	isl_stat r;
+
+	if (umap == NULL)
+		return NULL;
+
+	result = isl_union_map_empty(isl_union_map_get_space(umap));
+	r = isl_union_map_foreach_map(umap, &extend_access_by_1_map, &result);
+	if (r != isl_stat_ok)
+	{
+		isl_union_map_free(result);
+		return NULL;
+	}
+	return result;
+}
+#endif
+
 /* Extract a ppcg_scop from a pet_scop.
  *
  * The constructed ppcg_scop refers to elements from the pet_scop
@@ -1577,10 +1874,12 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	//ps->adjacent_may_writes = map_array_accesses_to_next_element(ps->may_writes);
 	//ps->adjacent_must_writes = map_array_accesses_to_next_element(ps->must_writes);
 
+#if 0
 	ps->cache_accesses_from_must = map_array_accesses_to_next_elements(ps->must_writes);
 	ps->cache_accesses_from_may = map_array_accesses_to_next_elements(ps->may_writes);
 	ps->cache_accesses_from_may = isl_union_map_union(ps->cache_accesses_from_may,
 					map_array_accesses_to_next_elements(ps->reads));
+#endif
 
 	ps->cache_array_tagged_reads = union_wrap_with_array_name(
 		map_array_accesses_to_next_elements(ps->reads));
@@ -1610,12 +1909,6 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	compute_tagger(ps);
 	compute_dependences(ps);
 	eliminate_dead_code(ps);
-
-	// isl_union_map_dump2(ps->cache_block_reads);
-	// isl_union_map_dump2(ps->tagged_dep_flow);
-	// isl_union_map_dump2(ps->dep_false);
-	// isl_union_map_dump2(ps->cache_block_dep_rar);
-	// isl_union_map_dump2(ps->cache_block_dep_flow);
 
 	if (!ps->context || !ps->domain || !ps->call || !ps->reads ||
 	    !ps->may_writes || !ps->must_writes || !ps->tagged_must_kills ||
