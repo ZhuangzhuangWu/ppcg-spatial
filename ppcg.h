@@ -99,8 +99,22 @@ struct ppcg_scop {
 	isl_union_map *tagged_cache_block_may_writes;
 	isl_union_map *tagged_cache_block_must_writes;
 
+	isl_union_map *adjacent_reads;
+	isl_union_map *adjacent_may_writes;
+	isl_union_map *adjacent_must_writes;
+
+	isl_union_map *cache_accesses_from_must;
+	isl_union_map *cache_accesses_from_may;
+	isl_union_map *cache_dep;
+	
+	isl_union_map *cache_array_tagged_reads;
+	isl_union_map *cache_array_tagged_may_writes;
+	isl_union_map *cache_array_tagged_must_writes;
+	isl_union_map *cache_array_tagged_dep;
+
 	isl_union_pw_multi_aff *tagger;
 	isl_union_map *array_tagger;
+	isl_union_pw_multi_aff *cache_array_tagger;
 
 	isl_union_map *independence;
 
@@ -115,6 +129,9 @@ struct ppcg_scop {
 	isl_union_map *cache_block_dep_flow;
 	isl_union_map *tagged_cache_block_dep_flow;
 	isl_union_map *cache_block_dep_rar;
+
+	isl_union_map *adjacent_dep_flow;
+	isl_union_map *adjacent_dep_rar;
 
 	isl_id_to_ast_expr *names;
 
