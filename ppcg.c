@@ -1680,9 +1680,6 @@ isl_stat basic_map_extend_accesses(__isl_take isl_basic_map *bmap,
 		return isl_stat_ok;
 
 	n_in = isl_basic_map_n_in(bmap);
-	if (n_in <= n_out)	/* enough dimensions already */
-		return isl_stat_ok;
-
 	extra_dims = n_in - n_out;
 
 	space = isl_basic_map_get_space(bmap);
@@ -1716,6 +1713,7 @@ isl_stat map_extend_accesses(__isl_take isl_map *map, void *user)
 	isl_map *result;
 	isl_id *tuple_id;
 	isl_space *space;
+	int n_in, n_out, extra_dims;
 
 	if (!user)
 		return isl_stat_error;
@@ -1723,17 +1721,30 @@ isl_stat map_extend_accesses(__isl_take isl_map *map, void *user)
 	if (!map)
 		return isl_stat_ok;
 
-	space = isl_map_get_space(map);
-	tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
-	space = isl_space_insert_dims(space, isl_dim_out, 0, 1);
-	space = isl_space_set_tuple_id(space, isl_dim_out, tuple_id);
-	result = isl_map_empty(space);
-	r = isl_map_foreach_basic_map(map, &basic_map_extend_accesses, &result);
-	isl_map_free(map);
-	if (r != isl_stat_ok)
+	n_in = isl_map_n_in(map);
+	n_out = isl_map_n_out(map);
+
+	/* keep accesses with enough dimensionality */
+	if (n_in <= n_out)
 	{
-		isl_map_free(result);
-		return r;
+		result = map;
+	}
+	else
+	{
+		extra_dims = n_in - n_out;
+
+		space = isl_map_get_space(map);
+		tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
+		space = isl_space_insert_dims(space, isl_dim_out, 0, extra_dims);
+		space = isl_space_set_tuple_id(space, isl_dim_out, tuple_id);
+		result = isl_map_empty(space);
+		r = isl_map_foreach_basic_map(map, &basic_map_extend_accesses, &result);
+		isl_map_free(map);
+		if (r != isl_stat_ok)
+		{
+			isl_map_free(result);
+			return r;
+		}
 	}
 	*(isl_union_map **)user =
 		isl_union_map_add_map(*(isl_union_map **)user, result);
