@@ -993,7 +993,7 @@ static void add_dependences(
 	isl_union_map *dep;
 
 	flow = compute_union_flow(sink, must_source, may_source, schedule);
-	isl_union_flow_debug(flow);
+	// isl_union_flow_debug(flow);
 	dep = isl_union_flow_get_must_dependence(flow);
 	ps->cache_array_tagged_dep = isl_union_map_union(
 		ps->cache_array_tagged_dep, dep);
@@ -1022,9 +1022,9 @@ static void compute_array_tagged_dependences(struct ppcg_scop *ps)
 	space = isl_union_set_get_space(ps->domain);
 	ps->cache_array_tagged_dep = isl_union_map_empty(isl_space_copy(space));
 
-	isl_union_map_debug(ps->cache_array_tagged_reads);
-	isl_union_map_debug(ps->cache_array_tagged_must_writes);
-	isl_union_map_debug(ps->cache_array_tagged_may_writes);
+	// isl_union_map_debug(ps->cache_array_tagged_reads);
+	// isl_union_map_debug(ps->cache_array_tagged_must_writes);
+	// isl_union_map_debug(ps->cache_array_tagged_may_writes);
 
 	// RAW (flow)
 	add_dependences(ps,
@@ -1081,7 +1081,20 @@ static void compute_array_tagged_dependences(struct ppcg_scop *ps)
 					isl_union_map_copy(tagged_reads),
 					isl_union_map_empty(isl_space_copy(space)),
 					isl_schedule_copy(sched));
+
+	add_dependences(ps,
+					isl_union_map_copy(tagged_must_writes),
+					isl_union_map_copy(tagged_reads),
+					isl_union_map_empty(isl_space_copy(space)),
+					isl_schedule_copy(sched));
+
+	add_dependences(ps,
+					isl_union_map_copy(tagged_must_writes),
+					isl_union_map_copy(tagged_must_writes),
+					isl_union_map_empty(isl_space_copy(space)),
+					isl_schedule_copy(sched));
 	isl_space_free(space);
+	isl_schedule_free(sched);
 }
 
 /* Eliminate dead code from ps->domain.
