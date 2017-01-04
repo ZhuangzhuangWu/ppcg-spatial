@@ -1846,6 +1846,171 @@ __isl_give isl_union_map *extend_access_by_1(__isl_keep isl_union_map *umap)
 }
 #endif
 
+/* increment - put 0 to produce a map {[A[*] -> B[x]] -> [A[*] -> B[y]]: y = 1}
+ *             put 1 for {[A[*] -> B[x]] -> [A[*] -> B[y]]: y = x + 1},
+ *      where A[*] stands for the original LHS of the map wrapped in the
+ *      domain of a given map.
+ */
+static __isl_give isl_basic_map *counter_increment_or_one(
+	__isl_keep isl_map *map, int increment)
+{
+	isl_basic_map *mapper;
+	isl_constraint *constraint;
+	isl_space *space = isl_map_get_space(map);
+	isl_space *space_copy;
+	isl_local_space *local_space;
+	int n_dim = isl_space_dim(space, isl_dim_in);
+
+	space = isl_space_domain(space);
+	space_copy = isl_space_copy(space);
+	space = isl_space_map_from_domain_and_range(space, space_copy);
+	local_space = isl_local_space_from_space(isl_space_copy(space));
+	mapper = isl_basic_map_identity(space);
+	mapper = isl_basic_map_drop_constraints_involving_dims(mapper, isl_dim_in,
+		n_dim - 1, 1);
+	constraint = isl_constraint_alloc_equality(local_space);
+	constraint = isl_constraint_set_constant_si(constraint, 1);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in,
+		n_dim - 1, increment);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_out,
+		n_dim - 1, -1);
+	mapper = isl_basic_map_add_constraint(mapper, constraint);
+
+	return mapper;
+}
+
+static inline __isl_give isl_basic_map *counter_increment(
+	__isl_keep isl_map *map)
+{
+	return counter_increment_or_one(map, 1);
+}
+
+static inline __isl_give isl_basic_map *counter_set_one(
+	__isl_keep isl_map *map)
+{
+	return counter_increment_or_one(map, 0);
+}
+
+static isl_stat drop_constraints_with_last_dim(
+	__isl_take isl_map *map, void *user)
+{
+	isl_union_map *result = *(isl_union_map **) user;
+	int n_in = isl_map_n_in(map);
+
+	map = isl_map_drop_constraints_involving_dims(map, isl_dim_in,
+		n_in - 1, 1);
+	result = isl_union_map_add_map(result, map);
+
+	*(isl_union_map **) user = result;
+}
+
+/* user/result has the shape {[Sx[*] -> cnt[r]] -> A[*]} where r is the
+ * multiplicity of accesses that gets modified by the current function
+ *
+ * map has the shape [Sx[*] -> __pet_ref*[]] -> A[*]
+ */
+static isl_stat tagged_map_to_counted_map(__isl_take isl_map *map, void *user)
+{
+	isl_union_map *uintersection, *udifference, *umap, *uintersection_nolast;
+	isl_map *intersection, *difference, *increment, *set_one;
+	isl_union_map *result = *(isl_union_map **) user;
+	isl_space *space = isl_map_get_space(map);
+	isl_id *id = isl_map_get_tuple_id(map, isl_dim_out);
+	int n_in = isl_map_n_in(map);
+
+	space = isl_space_drop_inputs(space, 1, isl_map_n_in(map) - 1);
+	space = isl_space_set_dim_name(space, isl_dim_in, 0, "__ppcg_cnt");
+	space = isl_space_set_tuple_id(space, isl_dim_in, id);
+
+	map = isl_map_domain_factor_domain(map);
+	map = isl_map_domain_product(map, isl_map_universe(space));
+	umap = isl_union_map_from_map(map);
+	uintersection = isl_union_map_intersect(isl_union_map_copy(result),
+		isl_union_map_copy(umap));
+
+	if (isl_union_map_is_empty(uintersection))
+	{
+		difference = isl_map_from_union_map(umap);
+	}
+	else
+	{
+		result = isl_union_map_subtract(result,
+			isl_union_map_copy(uintersection));
+
+		space = isl_union_map_get_space(umap);
+		uintersection_nolast = isl_union_map_empty(space);
+		isl_union_map_foreach_map(uintersection,
+			&drop_constraints_with_last_dim, &uintersection_nolast);
+		udifference = isl_union_map_subtract(umap,
+			uintersection_nolast);
+
+		// these MUST be single map here, since we intersected with a simple map
+		intersection = isl_map_from_union_map(uintersection);
+		if (!isl_union_map_is_empty(udifference))
+			difference = isl_map_from_union_map(udifference);
+		else
+		{
+			isl_union_map_free(udifference);
+			difference = NULL;
+		}
+
+		increment = isl_map_from_basic_map(counter_increment(intersection));
+		intersection = isl_map_apply_domain(intersection, increment);
+		result = isl_union_map_add_map(result, intersection);
+	}
+
+	if (difference)
+	{
+		set_one = isl_map_from_basic_map(counter_set_one(difference));
+		difference = isl_map_apply_domain(difference, set_one);
+		result = isl_union_map_add_map(result, difference);
+	}
+
+	*(isl_union_map **) user = result;
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *tagged_union_map_to_counted(
+	__isl_take isl_union_map *counted_accesses,
+	__isl_take isl_union_map *tagged_accesses)
+{
+	isl_space *space;
+	if (!tagged_accesses)
+		return counted_accesses;
+
+	// TODO: can we do it directly on unions ?
+	// we need a way to change __pet_ref* to A* without merging identical unions
+	if (isl_union_map_foreach_map(tagged_accesses, &tagged_map_to_counted_map,
+			&counted_accesses) < 0)
+		counted_accesses = isl_union_map_free(counted_accesses);
+	isl_union_map_free(tagged_accesses);
+
+	return counted_accesses;
+}
+
+static __isl_give isl_union_map *compute_counted_accesses(
+	__isl_keep isl_union_map *tagged_reads,
+	__isl_keep isl_union_map *tagged_may_writes,
+	__isl_keep isl_union_map *tagged_must_writes)
+{
+	isl_union_map *all_writes, *counted_accesses;
+	isl_space *space;
+
+	if (!tagged_reads || !tagged_may_writes || !tagged_must_writes)
+		return NULL;
+
+	space = isl_union_map_get_space(tagged_reads);
+	counted_accesses = isl_union_map_empty(space);
+
+	all_writes = isl_union_map_union(isl_union_map_copy(tagged_may_writes),
+		isl_union_map_copy(tagged_must_writes));
+	counted_accesses = tagged_union_map_to_counted(counted_accesses,
+		isl_union_map_copy(tagged_reads));
+	counted_accesses = tagged_union_map_to_counted(counted_accesses, all_writes);
+
+	return counted_accesses;
+}
+
 /* Extract a ppcg_scop from a pet_scop.
  *
  * The constructed ppcg_scop refers to elements from the pet_scop
@@ -1927,6 +2092,9 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	compute_array_tagged_dependences(ps);
 
 	isl_union_map_debug(ps->cache_array_tagged_dep);
+	ps->counted_accesses = compute_counted_accesses(ps->tagged_reads,
+		ps->tagged_may_writes, ps->tagged_must_writes);
+
 
 #if 0
 	if(options->only_cache_block_deps){
