@@ -1916,9 +1916,13 @@ static isl_stat tagged_map_to_counted_map(__isl_take isl_map *map, void *user)
 	isl_union_map *result = *(isl_union_map **) user;
 	isl_space *space = isl_map_get_space(map);
 	isl_id *id = isl_map_get_tuple_id(map, isl_dim_out);
-	int n_in = isl_map_n_in(map);
+	int n_in = isl_space_dim(space, isl_dim_in);
 
-	space = isl_space_drop_inputs(space, 1, isl_map_n_in(map) - 1);
+	if (n_in == 0)
+		space = isl_space_add_dims(space, isl_dim_in, 1);
+	else
+		space = isl_space_drop_inputs(space, 1, n_in - 1);
+
 	space = isl_space_set_dim_name(space, isl_dim_in, 0, "__ppcg_cnt");
 	space = isl_space_set_tuple_id(space, isl_dim_in, id);
 
@@ -1974,7 +1978,6 @@ static __isl_give isl_union_map *tagged_union_map_to_counted(
 	__isl_take isl_union_map *counted_accesses,
 	__isl_take isl_union_map *tagged_accesses)
 {
-	isl_space *space;
 	if (!tagged_accesses)
 		return counted_accesses;
 
