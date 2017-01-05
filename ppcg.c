@@ -2115,7 +2115,8 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 
 	if (!ps->context || !ps->domain || !ps->call || !ps->reads ||
 	    !ps->may_writes || !ps->must_writes || !ps->tagged_must_kills ||
-	    !ps->must_kills || !ps->schedule || !ps->independence || !ps->names)
+	    !ps->must_kills || !ps->schedule || !ps->independence ||
+            !ps->names || !ps->counted_accesses)
 		return ppcg_scop_free(ps);
 
 	return ps;
