@@ -1899,6 +1899,30 @@ static isl_stat drop_constraints_with_last_dim(
 	result = isl_union_map_add_map(result, map);
 
 	*(isl_union_map **) user = result;
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *union_map_drop_last_in_dim(
+	__isl_keep isl_union_map *umap)
+{
+	isl_union_map *result;
+	isl_space *space = space = isl_union_map_get_space(umap);
+
+	result = isl_union_map_empty(space);
+	if (isl_union_map_foreach_map(umap, &drop_constraints_with_last_dim,
+			&result) < 0)
+		return isl_union_map_free(result);
+	return result;
+}
+
+static __isl_give isl_union_map *union_map_symmetric_difference(
+	__isl_take isl_union_map *map1,
+	__isl_take isl_union_map *map2)
+{
+	isl_union_map *left = isl_union_map_subtract(isl_union_map_copy(map1),
+		isl_union_map_copy(map2));
+	isl_union_map *right = isl_union_map_subtract(map2, map1);
+	return isl_union_map_union(left, right);
 }
 
 /* user/result has the shape {[Sx[*] -> cnt[r]] -> A[*]} where r is the
@@ -1929,6 +1953,33 @@ static isl_stat tagged_map_to_counted_map(__isl_take isl_map *map, void *user)
 	uintersection = isl_union_map_intersect(isl_union_map_copy(result),
 		isl_union_map_copy(umap));
 
+	isl_union_map *symmdiff = union_map_symmetric_difference(
+		union_map_drop_last_in_dim(uintersection),
+		isl_union_map_copy(umap));
+
+	if (isl_union_map_is_empty(symmdiff))
+	{
+		isl_union_map_free(umap);
+		result = isl_union_map_subtract(result,
+			isl_union_map_copy(uintersection));
+
+		// we just saw it is the same as map plus counter value,
+		// so it is surely a single map
+		map = isl_map_from_union_map(uintersection);
+		increment = isl_map_from_basic_map(counter_increment(map));
+		map = isl_map_apply_domain(map, increment);
+		result = isl_union_map_add_map(result, map);
+	}
+	else // just add, it should not intersect
+	{
+		// MUST BE A MAP!
+		map = isl_map_from_union_map(umap);
+		set_one = isl_map_from_basic_map(counter_set_one(map));
+		map = isl_map_apply_domain(map, set_one);
+		result = isl_union_map_add_map(result, map);
+	}
+
+#if 0
 	if (isl_union_map_is_empty(uintersection))
 	{
 		difference = isl_map_from_union_map(umap);
@@ -1938,10 +1989,11 @@ static isl_stat tagged_map_to_counted_map(__isl_take isl_map *map, void *user)
 		result = isl_union_map_subtract(result,
 			isl_union_map_copy(uintersection));
 
-		space = isl_union_map_get_space(umap);
-		uintersection_nolast = isl_union_map_empty(space);
-		isl_union_map_foreach_map(uintersection,
-			&drop_constraints_with_last_dim, &uintersection_nolast);
+		// space = isl_union_map_get_space(umap);
+		// uintersection_nolast = isl_union_map_empty(space);
+		// isl_union_map_foreach_map(uintersection,
+		// 	&drop_constraints_with_last_dim, &uintersection_nolast);
+		uintersection_nolast = union_map_drop_last_in_dim(uintersection);
 		udifference = isl_union_map_subtract(umap,
 			uintersection_nolast);
 
@@ -1966,6 +2018,7 @@ static isl_stat tagged_map_to_counted_map(__isl_take isl_map *map, void *user)
 		difference = isl_map_apply_domain(difference, set_one);
 		result = isl_union_map_add_map(result, difference);
 	}
+#endif
 
 	*(isl_union_map **) user = result;
 	return isl_stat_ok;
