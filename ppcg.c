@@ -1698,8 +1698,8 @@ isl_stat acess_tile(__isl_take isl_basic_map *bmap)
  * In particular, assuming "bmap" contains equalities of the form o = f(i)
  * with o output dimensions and i input dimensions, take the matrix of
  * input dimension coefficients, extend it with a row containing 1 as each
- * of the coefficients in turn and check whether the matrix still has a
- * full row rank.
+ * of the coefficients in turn and check whether the new matrix has increased
+ * rank.  Adding a linearly independent row will increase matrix rank by 1.
  *
  * Return an equality constraint with input dimensions that form a linearly
  * indeendent access function or NULL if there is no trivial access function
@@ -1708,7 +1708,7 @@ isl_stat acess_tile(__isl_take isl_basic_map *bmap)
 static
 __isl_give isl_constraint *find_one_independent_access(__isl_keep isl_basic_map *bmap)
 {
-	int n_in, i, nr, rank;
+	int n_in, i, nr, rank, prev_rank;
 	isl_local_space *local_space;
 	isl_constraint *constraint;
 
@@ -1716,6 +1716,7 @@ __isl_give isl_constraint *find_one_independent_access(__isl_keep isl_basic_map 
 	isl_mat *eqmat = isl_basic_map_equalities_matrix(bmap,
 		isl_dim_in, isl_dim_out, isl_dim_param, isl_dim_cst, isl_dim_div);
 	eqmat = isl_mat_drop_cols(eqmat, n_in, isl_mat_cols(eqmat) - n_in);
+	prev_rank = isl_mat_rank(eqmat);
 	eqmat = isl_mat_add_zero_rows(eqmat, 1);
 
 	for (i = 0; i < n_in; ++i)
@@ -1723,7 +1724,7 @@ __isl_give isl_constraint *find_one_independent_access(__isl_keep isl_basic_map 
 		nr = isl_mat_rows(eqmat);
 		eqmat = isl_mat_set_element_si(eqmat, nr - 1, i, 1);
 		rank = isl_mat_rank(eqmat);
-		if (rank == nr)
+		if (rank == prev_rank + 1)
 			break;
 
 		eqmat = isl_mat_set_element_si(eqmat, nr - 1, i, 0);
