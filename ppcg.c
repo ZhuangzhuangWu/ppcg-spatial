@@ -1408,8 +1408,9 @@ static __isl_give isl_union_map *map_array_accesses_to_next_elements(
 
 	isl_union_map *extended = union_map_extend_accesses(access);
 
-	if (isl_union_map_foreach_map(extended, &array_access_to_next_elements, &data) < 0)
-		isl_union_map_free(data.result);
+	if (isl_union_map_foreach_map(extended,
+			&array_access_to_next_elements, &data) < 0)
+		data.result = isl_union_map_free(data.result);
 	isl_union_map_free(extended);
 
 	return data.result;
@@ -1614,50 +1615,53 @@ isl_stat acess_tile(__isl_take isl_basic_map *bmap)
 	bmap = isl_basic_map_add_constraint(bmap, constraint);
 }
 
+/* Find a trivial access function that is linearly independent of other access
+ * functions represented by equalities in the basic map "bmap".
+ * Trivial access function has the form f(i_*) = i_x, i.e. features only one
+ * input dimension with coefficient 1.
+ *
+ * In particular, assuming "bmap" contains equalities of the form o = f(i)
+ * with o output dimensions and i input dimensions, take the matrix of
+ * input dimension coefficients, extend it with a row containing 1 as each
+ * of the coefficients in turn and check whether the matrix still has a
+ * full row rank.
+ *
+ * Return an equality constraint with input dimensions that form a linearly
+ * indeendent access function or NULL if there is no trivial access function
+ * linearly independent of the given ones.
+ */
 static
 __isl_give isl_constraint *find_one_independent_access(__isl_keep isl_basic_map *bmap)
 {
-	int nc, n_in, i, j;
-	int *used_dim;
-	isl_constraint_list *constraint_list;
+	int n_in, i, nr, rank;
 	isl_local_space *local_space;
 	isl_constraint *constraint;
 
-	// FIXME: hack for now, find the input dimensions that was not
-	// referneced in the constraints yet
-
-	constraint_list = isl_basic_map_get_constraint_list(bmap);
-	nc = isl_constraint_list_n_constraint(constraint_list);
 	n_in = isl_basic_map_n_in(bmap);
-	used_dim = (int *) calloc(n_in, sizeof(int));
-	for (i = 0; i < nc; ++i)
+	isl_mat *eqmat = isl_basic_map_equalities_matrix(bmap,
+		isl_dim_in, isl_dim_out, isl_dim_param, isl_dim_cst, isl_dim_div);
+	eqmat = isl_mat_drop_cols(eqmat, n_in, isl_mat_cols(eqmat) - n_in);
+	eqmat = isl_mat_add_zero_rows(eqmat, 1);
+
+	for (i = 0; i < n_in; ++i)
 	{
-		isl_constraint *constraint =
-			isl_constraint_list_get_constraint(constraint_list, i);
-		for (j = 0; j < n_in; ++j)
-		{
-			if (isl_constraint_is_equality(constraint) != isl_bool_true)
-				continue;
-			if (isl_constraint_involves_dims(constraint, isl_dim_in, j, 1)
-					== isl_bool_true)
-				used_dim[j] = 1;
-		}
-		isl_constraint_free(constraint);
-	}
-	isl_constraint_list_free(constraint_list);
-	for (j = 0; j < n_in; ++j)
-		if (!used_dim[j])
+		nr = isl_mat_rows(eqmat);
+		eqmat = isl_mat_set_element_si(eqmat, nr - 1, i, 1);
+		rank = isl_mat_rank(eqmat);
+		if (rank == nr)
 			break;
-	free(used_dim);
-	if (j == n_in)
+
+		eqmat = isl_mat_set_element_si(eqmat, nr - 1, i, 0);
+	}
+	isl_mat_free(eqmat);
+
+	if (i == n_in)
 		return NULL;
 
 	local_space = isl_basic_map_get_local_space(bmap);
 	constraint = isl_constraint_alloc_equality(local_space);
-	constraint = isl_constraint_set_coefficient_si(
-			constraint, isl_dim_in, j, 1);
-	constraint = isl_constraint_set_coefficient_si(
-			constraint, isl_dim_out, 0, -1);
+	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, i, 1);
+
 	return constraint;
 }
 
@@ -1688,7 +1692,6 @@ isl_stat basic_map_extend_accesses(__isl_take isl_basic_map *bmap,
 	bmap = isl_basic_map_insert_dims(bmap, isl_dim_out, 0, extra_dims);
 	bmap = isl_basic_map_set_tuple_id(bmap, isl_dim_out, tuple_id);
 
-	/* TODO: Find linearly independent vectors */
 	for (i = 0; i < extra_dims; ++i)
 	{
 		isl_constraint *constraint = find_one_independent_access(bmap);
@@ -1697,7 +1700,8 @@ isl_stat basic_map_extend_accesses(__isl_take isl_basic_map *bmap,
 			isl_basic_map_free(bmap);
 			return isl_stat_error;
 		}
-
+		constraint = isl_constraint_set_coefficient_si(constraint,
+			isl_dim_out, i, -1);
 		bmap = isl_basic_map_add_constraint(bmap, constraint);
 	}
 
