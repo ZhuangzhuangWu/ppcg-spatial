@@ -112,6 +112,11 @@ struct ppcg_scop {
 	isl_union_map *cache_array_tagged_must_writes;
 	isl_union_map *cache_array_tagged_dep;
 
+	isl_union_map *retagged_reads;
+	isl_union_map *retagged_must_writes;
+	isl_union_map *retagged_dep;
+	isl_union_pw_multi_aff *retagged_tagger;
+
 	isl_union_map *counted_accesses;
 
 	isl_union_pw_multi_aff *tagger;
