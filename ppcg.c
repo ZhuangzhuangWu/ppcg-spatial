@@ -1995,16 +1995,6 @@ static __isl_give isl_union_map *union_map_drop_last_in_dim(
 	return result;
 }
 
-static __isl_give isl_union_map *union_map_symmetric_difference(
-	__isl_take isl_union_map *map1,
-	__isl_take isl_union_map *map2)
-{
-	isl_union_map *left = isl_union_map_subtract(isl_union_map_copy(map1),
-		isl_union_map_copy(map2));
-	isl_union_map *right = isl_union_map_subtract(map2, map1);
-	return isl_union_map_union(left, right);
-}
-
 /* user/result has the shape {[Sx[*] -> cnt[r]] -> A[*]} where r is the
  * multiplicity of accesses that gets modified by the current function
  *
@@ -2033,11 +2023,19 @@ static isl_stat tagged_map_to_counted_map(__isl_take isl_map *map, void *user)
 	uintersection = isl_union_map_intersect(isl_union_map_copy(result),
 		isl_union_map_copy(umap));
 
-	isl_union_map *symmdiff = union_map_symmetric_difference(
-		union_map_drop_last_in_dim(uintersection),
-		isl_union_map_copy(umap));
+	isl_union_map *uintersection_notag =
+		union_map_drop_last_in_dim(uintersection);
+	isl_bool intersection_is_map = isl_union_map_is_equal(
+		uintersection_notag, umap);
+	isl_union_map_free(uintersection_notag);
 
-	if (isl_union_map_is_empty(symmdiff))
+	if (intersection_is_map == isl_bool_error)
+	{
+		isl_union_map_free(umap);
+		return isl_stat_error;
+	}
+
+	if (intersection_is_map == isl_bool_true)
 	{
 		isl_union_map_free(umap);
 		result = isl_union_map_subtract(result,
