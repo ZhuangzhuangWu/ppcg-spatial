@@ -649,9 +649,12 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 //		proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->tagged_cache_block_dep_rar));
 		proximity = isl_union_map_copy(ps->tagged_cache_block_dep_flow);
 		// isl_union_map_dump(proximity);
-	}
-	else
+	} else if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
+		sc = isl_schedule_constraints_set_spatial_proximity(sc,
+			isl_union_map_copy(ps->retagged_dep));
+	} else {
 		proximity = isl_union_map_copy(ps->dep_flow);
+	}
 
 	if (ps->options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
 		proximity = isl_union_map_copy(ps->dep_flow_uniform);
@@ -667,16 +670,9 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 		sc = isl_schedule_constraints_set_spatial_proximity(sc,
 						ps->cache_array_tagged_dep);
 	}
-	sc = isl_schedule_constraints_set_counted_accesses(sc,
-		ps->counted_accesses);
 #endif
-	sc = isl_schedule_constraints_set_spatial_proximity(sc,
-		isl_union_map_copy(ps->retagged_dep));
-	isl_union_map *retagged_all_accesses = isl_union_map_union(
-		isl_union_map_copy(ps->retagged_reads),
-		isl_union_map_copy(ps->retagged_must_writes));
 	sc = isl_schedule_constraints_set_counted_accesses(sc,
-		retagged_all_accesses);
+		isl_union_map_copy(ps->counted_accesses));
 
 	return sc;
 }
