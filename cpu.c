@@ -641,36 +641,22 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 		sc = isl_schedule_constraints_set_coincidence(sc, coincidence);
 	sc = isl_schedule_constraints_set_validity(sc, validity);
 
-	if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
-//		proximity = isl_union_map_copy(ps->tagged_dep_flow);
-//		isl_union_map_dump(proximity);
-//		proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->tagged_cache_block_dep_flow));
-//		isl_union_map_dump(proximity);
-//		proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->tagged_cache_block_dep_rar));
-		proximity = isl_union_map_copy(ps->tagged_cache_block_dep_flow);
-		// isl_union_map_dump(proximity);
-	} else if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
+	if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS ||
+		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
 		sc = isl_schedule_constraints_set_spatial_proximity(sc,
 			isl_union_map_copy(ps->retagged_dep));
-	} else {
-		proximity = isl_union_map_copy(ps->dep_flow);
 	}
 
 	if (ps->options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
 		proximity = isl_union_map_copy(ps->dep_flow_uniform);
+	else
+		proximity = isl_union_map_copy(ps->dep_flow);
 
 	//proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->cache_dep));
 	//proximity = isl_union_map_copy(ps->cache_dep);
 
 	sc = isl_schedule_constraints_set_proximity(sc,
 					proximity);
-// per-array rather than per-access
-#if 0
-	if (ps->cache_array_tagged_dep) {
-		sc = isl_schedule_constraints_set_spatial_proximity(sc,
-						ps->cache_array_tagged_dep);
-	}
-#endif
 	sc = isl_schedule_constraints_set_counted_accesses(sc,
 		isl_union_map_copy(ps->counted_accesses));
 

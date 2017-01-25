@@ -406,19 +406,6 @@ static __isl_give isl_union_pw_multi_aff *compute_retagged_tagger(
 	return isl_union_map_domain_map_union_pw_multi_aff(tagged);
 }
 
-static void compute_array_tagger(struct ppcg_scop *ps)
-{
-	isl_union_map *tagged;
-
-	tagged = isl_union_map_copy(ps->cache_array_tagged_reads);
-	tagged = isl_union_map_union(tagged, isl_union_map_copy(ps->cache_array_tagged_may_writes));
-	tagged = isl_union_map_union(tagged, isl_union_map_copy(ps->cache_array_tagged_must_writes));
-
-	tagged = isl_union_map_universe(tagged);
-	tagged = isl_union_set_unwrap(isl_union_map_domain(tagged));
-	ps->cache_array_tagger = isl_union_map_domain_map_union_pw_multi_aff(tagged);
-}
-
 /* Compute the live out accesses, i.e., the writes that are
  * potentially not killed by any kills or any other writes, and
  * store them in ps->live_out.
@@ -761,47 +748,6 @@ static void compute_flow_dep(struct ppcg_scop *ps)
 	isl_union_flow_free(flow);
 }
 
-struct spatial_deps_data {
-	struct ppcg_scop *ps;
-	isl_union_map *res;
-};
-
-static isl_stat compute_cache_block_dep(__isl_take isl_map *cache_block_map, void *user)
-{
-	struct spatial_deps_data *data = user;
-	struct ppcg_scop *ps = data->ps;
-	isl_union_access_info *access;
-	isl_union_flow *flow;
-	isl_union_map *dep, *acc;
-	isl_space *space;
-	isl_union_pw_multi_aff *tagger;
-	isl_schedule *schedule;
-
-	acc = isl_union_map_from_map(cache_block_map);
-	//isl_union_map_dump(acc);
-
-	tagger = isl_union_pw_multi_aff_copy(ps->tagger);
-	schedule = isl_schedule_copy(ps->schedule);
-	schedule = isl_schedule_pullback_union_pw_multi_aff(schedule, tagger);
-
-	access = isl_union_access_info_from_sink(isl_union_map_copy(acc));
-	access = isl_union_access_info_set_must_source(access,
-			isl_union_map_copy(acc));
-	access = isl_union_access_info_set_may_source(access,
-			isl_union_map_copy(acc));
-	access = isl_union_access_info_set_schedule(access,
-				isl_schedule_copy(schedule));
-	flow = isl_union_access_info_compute_flow(access);
-
-	dep = isl_union_flow_get_may_dependence(flow);
-	//isl_union_map_dump(dep);
-
-	data->res = isl_union_map_union(data->res, dep);
-	isl_union_flow_free(flow);
-
-	return isl_stat_ok;
-}
-
 /* Compute the dependences of the program represented by "scop".
  * Store the computed potential flow dependences
  * in scop->dep_flow and the reads with potentially no corresponding writes in
@@ -859,176 +805,6 @@ static __isl_give isl_union_flow *compute_union_flow(
 	ai = isl_union_access_info_set_may_source(ai, may_source);
 	ai = isl_union_access_info_set_schedule(ai, schedule);
 	return isl_union_access_info_compute_flow(ai);
-}
-
-static void add_dependences(
-	struct ppcg_scop *ps,
-	__isl_take isl_union_map *sink,
-	__isl_take isl_union_map *must_source,
-	__isl_take isl_union_map *may_source,
-	__isl_take isl_schedule *schedule)
-{
-	isl_union_flow *flow;
-	isl_union_map *dep;
-
-	flow = compute_union_flow(sink, must_source, may_source, schedule);
-	// isl_union_flow_debug(flow);
-	dep = isl_union_flow_get_must_dependence(flow);
-	ps->cache_array_tagged_dep = isl_union_map_union(
-		ps->cache_array_tagged_dep, dep);
-
-	dep = isl_union_flow_get_may_dependence(flow);
-	ps->cache_array_tagged_dep = isl_union_map_union(
-		ps->cache_array_tagged_dep, dep);
-
-	isl_union_flow_free(flow);
-}
-
-static isl_union_map *union_wrap_with_array_name(isl_union_map *);
-static isl_union_map *union_map_extend_accesses(isl_union_map *);
-static isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *, int);
-
-static void compute_array_tagged_dependences_groups(struct ppcg_scop *ps)
-{
-	isl_union_map *cache_block_reads =
-		map_array_accesses_to_cache_blocks(ps->reads, CACHE_SIZE);
-	// isl_union_map *cache_block_may_writes =
-	// 	map_array_accesses_to_cache_blocks(ps->may_writes, CACHE_SIZE);
-	isl_union_map *cache_block_must_writes =
-		map_array_accesses_to_cache_blocks(ps->must_writes, CACHE_SIZE);
-
-	isl_union_map *tagged_cache_block_reads =
-		union_wrap_with_array_name(
-			union_map_extend_accesses(cache_block_reads));
-	isl_union_map *tagged_cache_block_must_writes =
-		union_wrap_with_array_name(
-			union_map_extend_accesses(cache_block_must_writes));
-	isl_union_map *empty = isl_union_map_empty(
-		isl_union_map_get_space(tagged_cache_block_reads));
-
-	isl_schedule *sched = isl_schedule_copy(ps->schedule);
-	sched = isl_schedule_pullback_union_pw_multi_aff(sched,
-		ps->cache_array_tagger);
-	ps->cache_array_tagged_dep = isl_union_map_empty(
-		isl_union_set_get_space(ps->domain));
-
-	// RAW
-	add_dependences(ps,
-					isl_union_map_copy(tagged_cache_block_reads),
-					isl_union_map_copy(tagged_cache_block_must_writes),
-					isl_union_map_copy(empty),
-					isl_schedule_copy(sched));
-
-	// RAR
-	add_dependences(ps,
-					isl_union_map_copy(tagged_cache_block_reads),
-					isl_union_map_copy(tagged_cache_block_reads),
-					isl_union_map_copy(empty),
-					isl_schedule_copy(sched));
-
-	// WAR
-	add_dependences(ps,
-					isl_union_map_copy(tagged_cache_block_must_writes),
-					isl_union_map_copy(tagged_cache_block_reads),
-					isl_union_map_copy(empty),
-					isl_schedule_copy(sched));
-
-	// WAW
-	add_dependences(ps,
-					isl_union_map_copy(tagged_cache_block_must_writes),
-					tagged_cache_block_must_writes,
-					empty,
-					sched);
-}
-
-static void compute_array_tagged_dependences(struct ppcg_scop *ps)
-{
-	//isl_union_access_info *ai;
-	isl_schedule *sched;
-	//isl_union_map *dep;
-	//isl_union_flow *fl;
-	isl_space *space;
-	isl_union_map *all_writes;
-
-	sched = isl_schedule_copy(ps->schedule);
-	sched = isl_schedule_pullback_union_pw_multi_aff(sched, ps->cache_array_tagger);
-
-	space = isl_union_set_get_space(ps->domain);
-	ps->cache_array_tagged_dep = isl_union_map_empty(isl_space_copy(space));
-
-	// isl_union_map_debug(ps->cache_array_tagged_reads);
-	// isl_union_map_debug(ps->cache_array_tagged_must_writes);
-	// isl_union_map_debug(ps->cache_array_tagged_may_writes);
-
-	// RAW (flow)
-	add_dependences(ps,
-					isl_union_map_copy(ps->cache_array_tagged_reads),
-					isl_union_map_copy(ps->cache_array_tagged_must_writes),
-					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_may_writes),
-					isl_schedule_copy(sched));
-	// RAR (output)
-	add_dependences(ps,
-					isl_union_map_copy(ps->cache_array_tagged_reads),
-					isl_union_map_copy(ps->cache_array_tagged_reads),
-					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_reads),
-					isl_schedule_copy(sched));
-
-	// WAR (anti/false)
-	all_writes = isl_union_map_union(
-			isl_union_map_copy(ps->cache_array_tagged_may_writes),
-			isl_union_map_copy(ps->cache_array_tagged_must_writes));
-	add_dependences(ps,
-					isl_union_map_copy(all_writes),
-					isl_union_map_copy(ps->cache_array_tagged_reads),
-					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_reads),
-					isl_schedule_copy(sched));
-
-	// WAW (input/false)
-	add_dependences(ps,
-					all_writes,
-					isl_union_map_copy(ps->cache_array_tagged_must_writes),
-					isl_union_map_empty(isl_space_copy(space)),//isl_union_map_copy(ps->cache_array_tagged_may_writes),
-					isl_schedule_copy(sched));
-
-	isl_space_free(space);
-
-	// Let's also compute original proximity dependences
-	// option 1: do not extend dimensionality
-	// option 2: extend dimensionality, and set all extended dimension values
-	//           to 0 (or a value outside the domain) so as to ensure dependences
-	//           between accesses exist (but do not overlap with induced deps)
-	isl_union_map *tagged_reads = union_wrap_with_array_name(ps->reads);
-	isl_union_map *tagged_must_writes =
-			union_wrap_with_array_name(ps->must_writes);
-	isl_union_map *tagged_may_writes =
-			union_wrap_with_array_name(ps->may_writes);
-	space = isl_union_map_get_space(tagged_reads);
-	// RAW (flow)
-	add_dependences(ps,
-					isl_union_map_copy(tagged_reads),
-					isl_union_map_copy(tagged_must_writes),
-					isl_union_map_empty(isl_space_copy(space)),
-					isl_schedule_copy(sched));
-	// RAR (output)
-	add_dependences(ps,
-					isl_union_map_copy(tagged_reads),
-					isl_union_map_copy(tagged_reads),
-					isl_union_map_empty(isl_space_copy(space)),
-					isl_schedule_copy(sched));
-
-	add_dependences(ps,
-					isl_union_map_copy(tagged_must_writes),
-					isl_union_map_copy(tagged_reads),
-					isl_union_map_empty(isl_space_copy(space)),
-					isl_schedule_copy(sched));
-
-	add_dependences(ps,
-					isl_union_map_copy(tagged_must_writes),
-					isl_union_map_copy(tagged_must_writes),
-					isl_union_map_empty(isl_space_copy(space)),
-					isl_schedule_copy(sched));
-	isl_space_free(space);
-	isl_schedule_free(sched);
 }
 
 static void add_retagged_dependences(
@@ -1197,9 +973,11 @@ static __isl_give isl_union_map *union_map_drop_all_inequalities(
 }
 
 static isl_union_map *map_array_accesses_to_next_elements(isl_union_map *);
+static isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *);
 static isl_map *retag_map_helper(isl_map *map, void *user);
 
-static void compute_retagged_dependences(struct ppcg_scop *ps)
+static void compute_retagged_dependences_model(struct ppcg_scop *ps,
+	__isl_give isl_union_map * (*spatial_model)(__isl_keep isl_union_map *))
 {
 	isl_union_map *spatial_reads, *spatial_writes;
 	isl_union_map *retagged_reads, *retagged_must_writes;
@@ -1217,9 +995,8 @@ static void compute_retagged_dependences(struct ppcg_scop *ps)
 		isl_union_set_get_space(ps->domain));
 
 	// Spatial locality dependences ()
-	spatial_reads = map_array_accesses_to_next_elements(retagged_reads);
-	spatial_writes = map_array_accesses_to_next_elements(
-		retagged_must_writes);
+	spatial_reads = spatial_model(retagged_reads);
+	spatial_writes = spatial_model(retagged_must_writes);
 	add_all_retagged_dependences(ps, spatial_reads, spatial_writes,
 		retagged_tagger);
 	isl_union_map_free(spatial_reads);
@@ -1232,6 +1009,18 @@ static void compute_retagged_dependences(struct ppcg_scop *ps)
 	// ps->retagged_dep = union_map_drop_all_inequalities(ps->retagged_dep);
 	ps->counted_accesses = isl_union_map_union(retagged_reads,
 		retagged_must_writes);
+}
+
+static void compute_retagged_dependences(struct ppcg_scop *ps)
+{
+	compute_retagged_dependences_model(ps,
+		&map_array_accesses_to_next_elements);
+}
+
+static void compute_retagged_dependences_groups(struct ppcg_scop *ps)
+{
+	compute_retagged_dependences_model(ps,
+		&map_array_accesses_to_cache_blocks);
 }
 
 isl_bool constraint_has_nonzero_coefficients(
@@ -1472,11 +1261,8 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 	isl_union_map_free(ps->tagged_dep_order);
 	isl_union_map_free(ps->dep_order);
 
-	if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
-		isl_union_map_free(ps->cache_block_dep_flow);
-		isl_union_map_free(ps->cache_block_dep_rar);
-		isl_union_map_free(ps->counted_accesses);
-	} else if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
+	if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS ||
+		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
 		isl_union_map_free(ps->retagged_dep);
 		isl_union_map_free(ps->counted_accesses);
 	}
@@ -1560,12 +1346,15 @@ static isl_stat cache_block_map(__isl_take isl_map *map, void *user)
     return isl_stat_ok;
 }
 
-__isl_give isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *accesses, int cache_block_size)
+static isl_union_map *union_map_extend_accesses(isl_union_map *);
+
+__isl_give isl_union_map *map_array_accesses_to_cache_blocks(
+	__isl_keep isl_union_map *accesses)
 {
-
 	isl_space *space, *access_domain, *cache_map_space;
-	struct cache_block_map_data data = {cache_block_size};
+	struct cache_block_map_data data = { CACHE_SIZE };
 
+	accesses = union_map_extend_accesses(accesses);
 	space = isl_union_map_get_space(accesses);
 
 	data.res = isl_union_map_empty(space);
@@ -1784,19 +1573,6 @@ isl_stat map_wrap_with_array_name(__isl_take isl_map *map, void *user)
 	*result = isl_union_map_add_map(*result, map);
 
 	return isl_stat_ok;
-}
-
-__isl_give isl_union_map *union_wrap_with_array_name(__isl_keep isl_union_map *union_map)
-{
-	isl_union_map *result;
-	isl_space *space;
-
-	space = isl_union_map_get_space(union_map);
-	result = isl_union_map_empty(space);
-
-	if (isl_union_map_foreach_map(union_map, &map_wrap_with_array_name, &result) != isl_stat_ok)
-		return NULL;
-	return result;
 }
 
 // {[i,j] -> [o1,o2] : o1 = i and o2 = j} =>
@@ -2414,29 +2190,17 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 
 	if (options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
 		compute_retagged_dependences(ps);
-		if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_SPATIAL ||
-			options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
-			ps->retagged_dep = union_map_filter_uniform(ps->retagged_dep);
 	} else if (options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
-		ps->cache_array_tagged_reads = union_wrap_with_array_name(
-			map_array_accesses_to_next_elements(ps->reads));
-		ps->cache_array_tagged_may_writes = union_wrap_with_array_name(
-			map_array_accesses_to_next_elements(ps->may_writes));
-		ps->cache_array_tagged_must_writes = union_wrap_with_array_name(
-			map_array_accesses_to_next_elements(ps->must_writes));
-
-		compute_array_tagger(ps);
-		// compute_array_tagged_dependences(ps);
-		compute_array_tagged_dependences_groups(ps);
-
-		ps->counted_accesses = compute_counted_accesses(ps->tagged_reads,
-			ps->tagged_may_writes, ps->tagged_must_writes);
+		compute_retagged_dependences_groups(ps);
 	}
 
 	compute_tagger(ps);
 	compute_dependences(ps);
 	eliminate_dead_code(ps);
 
+	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_SPATIAL ||
+		options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
+		ps->retagged_dep = union_map_filter_uniform(ps->retagged_dep);
 	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
 		ps->dep_flow_uniform = union_map_filter_uniform(
 			isl_union_map_copy(ps->dep_flow));
