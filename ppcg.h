@@ -91,18 +91,12 @@ struct ppcg_scop {
 	isl_union_map *tagged_must_kills;
 	isl_union_map *must_kills;
 
-	isl_union_map *cache_array_tagged_reads;
-	isl_union_map *cache_array_tagged_may_writes;
-	isl_union_map *cache_array_tagged_must_writes;
-	isl_union_map *cache_array_tagged_dep;
-
 	isl_union_map *retagged_dep;
 
 	isl_union_map *counted_accesses;
 
 	isl_union_pw_multi_aff *tagger;
 	isl_union_map *array_tagger;
-	isl_union_pw_multi_aff *cache_array_tagger;
 
 	isl_union_map *independence;
 
@@ -114,10 +108,6 @@ struct ppcg_scop {
 	isl_union_map *dep_order;
 	isl_union_map *tagged_dep_order;
 	isl_schedule *schedule;
-
-	isl_union_map *cache_block_dep_flow;
-	isl_union_map *tagged_cache_block_dep_flow;
-	isl_union_map *cache_block_dep_rar;
 
 	isl_id_to_ast_expr *names;
 
