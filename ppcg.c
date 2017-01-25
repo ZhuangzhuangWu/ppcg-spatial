@@ -944,7 +944,7 @@ static void compute_dependences(struct ppcg_scop *scop)
 	else
 		compute_flow_dep(scop);
 
-	if (scop->options->model_spatial_locality){
+	if (scop->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
 		compute_spatial_locality_deps(scop);
 //		compute_spatial_locality_flow_dep(scop);
 //		compute_spatial_locality_rar_dep(scop);
@@ -1525,7 +1525,7 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 	isl_union_map_free(ps->tagged_dep_order);
 	isl_union_map_free(ps->dep_order);
 
-	if(ps->options->model_spatial_locality){
+	if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
 		isl_union_map_free(ps->cache_block_dep_flow);
 		isl_union_map_free(ps->cache_block_dep_rar);
 		isl_union_map_free(ps->cache_block_may_writes);
@@ -2487,7 +2487,7 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 
 	isl_union_map_debug(ps->retagged_dep);
 
-	if(options->model_spatial_locality){
+	if (options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
 		ps->cache_block_reads = map_array_accesses_to_cache_blocks(ps->reads, CACHE_SIZE);
 		ps->cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, CACHE_SIZE);
 		ps->cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, CACHE_SIZE);
@@ -2520,20 +2520,6 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 
 	ps->counted_accesses = compute_counted_accesses(ps->tagged_reads,
 		ps->tagged_may_writes, ps->tagged_must_writes);
-
-
-#if 0
-	if(options->only_cache_block_deps){
-		ps->reads = map_array_accesses_to_cache_blocks(ps->reads, CACHE_SIZE);
-		ps->may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, CACHE_SIZE);
-		ps->must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, CACHE_SIZE);
-		ps->must_kills = map_array_accesses_to_cache_blocks(ps->must_kills, CACHE_SIZE);
-		ps->tagged_reads = map_array_accesses_to_cache_blocks(ps->tagged_reads, CACHE_SIZE);
-		ps->tagged_may_writes = map_array_accesses_to_cache_blocks(ps->tagged_may_writes, CACHE_SIZE);
-		ps->tagged_must_writes = map_array_accesses_to_cache_blocks(ps->tagged_must_writes, CACHE_SIZE);
-		ps->tagged_must_kills = map_array_accesses_to_cache_blocks(ps->tagged_must_kills, CACHE_SIZE);
-	}
-#endif
 
 	compute_tagger(ps);
 	compute_dependences(ps);
