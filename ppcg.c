@@ -1145,6 +1145,135 @@ static void add_all_retagged_dependences(struct ppcg_scop *ps,
 	isl_schedule_free(schedule);
 }
 
+struct map_transform_helper_data
+{
+	isl_map *result;
+	void *user;
+	__isl_give isl_basic_map *(*f)(__isl_take isl_basic_map *, void *);
+};
+
+static isl_stat map_transform_helper(__isl_take isl_basic_map *bmap,
+	void *user)
+{
+	struct map_transform_helper_data *data = user;
+	bmap = data->f(bmap, data->user);
+	if (!bmap)
+		return isl_stat_error;
+	data->result = isl_map_union(data->result,
+		isl_map_from_basic_map(bmap));
+	if (!data->result)
+		return isl_stat_error;
+	return isl_stat_ok;
+}
+
+static __isl_give isl_map *map_transform(__isl_take isl_map *map,
+	__isl_give isl_basic_map *(*f)(__isl_take isl_basic_map *, void *),
+	void *user)
+{
+	isl_space *space;
+	isl_map *result;
+	struct map_transform_helper_data data;
+	isl_stat r;
+
+	if (!map)
+		return NULL;
+
+	space = isl_map_get_space(map);
+	result = isl_map_empty(space);
+	data.result = result;
+	data.user = user;
+	data.f = f;
+	r = isl_map_foreach_basic_map(map, &map_transform_helper, &data);
+	isl_map_free(map);
+	if (r == isl_stat_error)
+		data.result = isl_map_free(data.result);
+	return data.result;
+}
+
+struct union_map_transform_data
+{
+	__isl_give isl_map *(*f)(__isl_take isl_map *, void *);
+	isl_union_map *result;
+	void *user;
+};
+
+static isl_stat union_map_transform_helper(__isl_take isl_map *map,
+	void *user)
+{
+	struct union_map_transform_data *data = user;
+	map = data->f(map, data->user);
+	if (!map)
+		return isl_stat_error;
+	data->result = isl_union_map_add_map(data->result, map);
+	if (!data->result)
+		return isl_stat_error;
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *union_map_transform(
+	__isl_take isl_union_map *umap,
+	__isl_give isl_map *(*f)(__isl_take isl_map *, void *),
+	void *user)
+{
+	isl_union_map *result;
+	isl_space *space;
+
+	if (!umap)
+		return NULL;
+
+	space = isl_union_map_get_space(umap);
+	result = isl_union_map_empty(space);
+	struct union_map_transform_data data = {f, result, user};
+	if (isl_union_map_foreach_map(umap, &union_map_transform_helper,
+			&data) < 0)
+		result = isl_union_map_free(result);
+
+	isl_union_map_free(umap);
+
+	return result;
+}
+
+static __isl_give isl_basic_map *basic_map_drop_all_inequalities(
+	__isl_take isl_basic_map *bmap)
+{
+	isl_mat *eq, *ineq;
+	isl_ctx *ctx;
+	isl_space *space;
+
+	if (!bmap)
+		return NULL;
+
+	ctx = isl_basic_map_get_ctx(bmap);
+	eq = isl_basic_map_equalities_matrix(bmap,
+		isl_dim_cst, isl_dim_in, isl_dim_out, isl_dim_div, isl_dim_param);
+	ineq = isl_mat_alloc(ctx, 0, isl_mat_cols(eq));
+	space = isl_basic_map_get_space(bmap);
+	isl_basic_map_free(bmap);
+
+	bmap = isl_basic_map_from_constraint_matrices(space, eq, ineq,
+		isl_dim_cst, isl_dim_in, isl_dim_out, isl_dim_div, isl_dim_param);
+	return bmap;
+}
+
+static __isl_give isl_basic_map *basic_map_drop_all_inequalities_helper(
+	__isl_take isl_basic_map *bmap, void *user)
+{
+	(void) user;
+	return basic_map_drop_all_inequalities(bmap);
+}
+
+static __isl_give isl_map *map_drop_all_inequalities_helper(
+	__isl_take isl_map *map, void *user)
+{
+	return map_transform(map, &basic_map_drop_all_inequalities_helper, user);
+}
+
+static __isl_give isl_union_map *union_map_drop_all_inequalities(
+	__isl_take isl_union_map *umap)
+{
+	return union_map_transform(umap, &map_drop_all_inequalities_helper, NULL);
+}
+
 static isl_union_map *map_array_accesses_to_next_elements(isl_union_map *);
 
 static void compute_retagged_dependences(struct ppcg_scop *ps)
@@ -1165,6 +1294,136 @@ static void compute_retagged_dependences(struct ppcg_scop *ps)
 	// Original dependences.
 	add_all_retagged_dependences(ps, ps->retagged_reads,
 		ps->retagged_must_writes);
+
+	// ps->retagged_dep = union_map_drop_all_inequalities(ps->retagged_dep);
+}
+
+isl_bool constraint_has_nonzero_coefficients(
+	__isl_keep isl_constraint *constraint, enum isl_dim_type type)
+{
+	int i, n = isl_constraint_dim(constraint, type);
+	isl_bool b;
+
+	for (i = 0; i < n; ++i)
+	{
+		isl_val *v = isl_constraint_get_coefficient_val(constraint, type, i);
+		if ((b = isl_val_is_zero(v)) != isl_bool_false)
+			return b;
+	}
+	return isl_bool_false;
+}
+
+isl_bool basic_map_is_uniform(__isl_keep isl_basic_map *bmap)
+{
+	isl_constraint *constraint;
+	int n_in, n_out, i, n_min, n_max;
+	isl_bool eq = isl_bool_error;
+
+	n_in = isl_basic_map_n_in(bmap);
+	n_out = isl_basic_map_n_out(bmap);
+
+	// if (n_out != n_in)
+	// 	return isl_bool_false;
+
+	// if (n_in > n_out)
+		// return isl_bool_false; // FIXME: dropping the case (i,j,k)->C[i,j] => (i,j)->C[i,j]
+
+	// what about the case (i,j)->C[i,0] => (i,j)->C[i,0]; constant and paramteric-only accesses seem to be managed already (coef for the variable partial is zero)
+
+	// what about (i,j)->C[i,j,j] => (i,j,k)->C[i,j,k]?
+	// dep: i'=i, j'=j, k'=j;  does not suffice to check min(n_in, n_out dimensions)
+	// check the remaining deps to be constant/parametric only?
+	// (i,j)->C[i,j,N] -> (i,j,k)->C[i,j,k]:
+	// dep = i'=i, j'=j, k'=N
+
+	// if (n_out > n_in) // case (i,j)->C[i,j] => (i,j,k)->C[i,j]
+
+	n_min = n_in < n_out ? n_in : n_out;
+	n_max = n_in > n_out ? n_in : n_out;
+
+	for (i = 0; i < n_max; ++i) {
+		isl_val *vin, *vout;
+
+		if (i < n_min) {
+			if ((eq = isl_basic_map_has_defining_equality(bmap, isl_dim_out,
+					i, &constraint)) != isl_bool_true)
+				return eq;
+
+			vin = isl_constraint_get_coefficient_val(constraint,
+				isl_dim_in, i);
+			vout = isl_constraint_get_coefficient_val(constraint,
+				isl_dim_out, i);
+
+			vout = isl_val_neg(vout);
+			eq = isl_val_eq(vin, vout);
+			isl_val_free(vin);
+			isl_val_free(vout);
+			if (eq != isl_bool_true)
+				goto notfound;
+
+			constraint = isl_constraint_set_coefficient_si(constraint,
+				isl_dim_in, i, 0);
+			constraint = isl_constraint_set_coefficient_si(constraint,
+				isl_dim_out, i, 0);
+		} else {
+			enum isl_dim_type type = n_in > n_out ? isl_dim_in : isl_dim_out;
+
+			eq = isl_basic_map_has_defining_equality(bmap, type,
+				i, &constraint);
+			if (eq == isl_bool_error)
+				return eq;
+			if (!eq)
+				continue;  // This allows (i,j)->C[i,j] => (i,j,k)->C[i,j] for address-based (non-dataflow) analysis where dep. i'=i, j'=j, lb_k<=k<=ub_k.
+						// FIXME: but shoud we account for dependences that have old "cache style", i.e. 32*i <= i' <= 32*i+31 ??  they won't fit current conditions, but may be useful (even if they are not uniform...)
+		}
+
+		if (eq = constraint_has_nonzero_coefficients(
+				constraint, isl_dim_in) != isl_bool_true)
+			goto notfound;
+		if (eq = constraint_has_nonzero_coefficients(
+				constraint, isl_dim_out) != isl_bool_true)
+			goto notfound;
+	}
+
+	return isl_bool_true;
+
+notfound:
+	isl_constraint_free(constraint);
+	return eq;
+}
+
+/* If a basic map "bmap" is uniform, return itself, otherwise return an empty
+ * map in the same space.  Return NULL on errors.
+ */
+__isl_give isl_basic_map *basic_map_filter_uniform(
+	__isl_take isl_basic_map *bmap, void *user)
+{
+	isl_bool uniform;
+
+	(void) user;
+
+	uniform = basic_map_is_uniform(bmap);
+	if (uniform == isl_bool_error) {
+		return isl_basic_map_free(bmap);
+	} else if (uniform == isl_bool_false) {
+		isl_space *space = isl_basic_map_get_space(bmap);
+		isl_basic_map_free(bmap);
+		return isl_basic_map_empty(space);
+	}
+
+	return bmap;
+}
+
+__isl_give isl_map *map_filter_uniform_helper(__isl_take isl_map *map,
+	void *user)
+{
+	return map_transform(map, &basic_map_filter_uniform, user);
+}
+
+__isl_give isl_union_map *union_map_filter_uniform(
+	__isl_take isl_union_map *umap)
+{
+	return union_map_transform(umap, &map_filter_uniform_helper, NULL);
 }
 
 /* Eliminate dead code from ps->domain.
@@ -2105,49 +2364,6 @@ static isl_stat tagged_map_to_counted_map(__isl_take isl_map *map, void *user)
 	return isl_stat_ok;
 }
 
-struct union_map_transform_data
-{
-	__isl_give isl_map *(*f)(__isl_take isl_map *, void *);
-	isl_union_map *result;
-	void *user;
-};
-
-static isl_stat union_map_transform_helper(__isl_take isl_map *map,
-	void *user)
-{
-	struct union_map_transform_data *data = user;
-	map = data->f(map, data->user);
-	if (!map)
-		return isl_stat_error;
-	data->result = isl_union_map_add_map(data->result, map);
-	if (!data->result)
-		return isl_stat_error;
-	return isl_stat_ok;
-}
-
-static __isl_give isl_union_map *union_map_transform(
-	__isl_take isl_union_map *umap,
-	__isl_give isl_map *(*f)(__isl_take isl_map *, void *),
-	void *user)
-{
-	isl_union_map *result;
-	isl_space *space;
-
-	if (!umap)
-		return NULL;
-
-	space = isl_union_map_get_space(umap);
-	result = isl_union_map_empty(space);
-	struct union_map_transform_data data = {f, result, user};
-	if (isl_union_map_foreach_map(umap, &union_map_transform_helper,
-			&data) < 0)
-		result = isl_union_map_free(result);
-
-	isl_union_map_free(umap);
-
-	return result;
-}
-
 static inline __isl_give isl_map *retag_map(__isl_take isl_map *map,
 	const char *prefix)
 {
@@ -2278,6 +2494,7 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 		&retag_map_helper, "2read");
 	compute_retagged_tagger(ps);
 	compute_retagged_dependences(ps);
+	ps->retagged_dep = union_map_filter_uniform(ps->retagged_dep);
 
 	isl_union_map_debug(ps->retagged_dep);
 
