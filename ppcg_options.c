@@ -17,6 +17,20 @@ static struct isl_arg_choice target[] = {
 	{0}
 };
 
+struct isl_arg_choice ppcg_spatial_model_choice[] = {
+	{"none",	PPCG_SPATIAL_MODEL_NONE},
+	{"groups",	PPCG_SPATIAL_MODEL_GROUPS},
+	{"ends",	PPCG_SPATIAL_MODEL_ENDS},
+	{0}
+};
+
+struct isl_arg_choice ppcg_remove_nonuniform_choice[] = {
+	{"none",	PPCG_REMOVE_NONUNIFORM_NONE},
+	{"spatial",	PPCG_REMOVE_NONUNIFORM_SPATIAL},
+	{"all", 	PPCG_REMOVE_NONUNIFORM_ALL},
+	{0}
+};
+
 /* Set defaults that depend on the target.
  * In particular, set --schedule-outer-coincidence iff target is a GPU.
  */
@@ -91,10 +105,12 @@ ISL_ARG_BOOL(struct ppcg_options, use_shared_memory, 0, "shared-memory", 1,
 	"use shared memory in kernel code")
 ISL_ARG_BOOL(struct ppcg_options, use_private_memory, 0, "private-memory", 1,
 	"use private memory in kernel code")
-ISL_ARG_BOOL(struct ppcg_options, model_spatial_locality, 1, "model-spatial-locality", 0,
-	"model spatial locality while finding transforamtions")
-ISL_ARG_BOOL(struct ppcg_options, only_cache_block_deps, 0, "only-cache-block-deps", 0,
-	"use only cache block dependences while finding transforamtions")
+ISL_ARG_CHOICE(struct ppcg_options, spatial_model, 0, "spatial-model",
+	ppcg_spatial_model_choice, PPCG_SPATIAL_MODEL_ENDS,
+	"spatial locality model to use")
+ISL_ARG_CHOICE(struct ppcg_options, remove_nonuniform, 0, "remove-nonuniform",
+	ppcg_remove_nonuniform_choice, PPCG_REMOVE_NONUNIFORM_SPATIAL,
+	"non-uniform dependences to remove")
 ISL_ARG_STR(struct ppcg_options, ctx, 0, "ctx", "context", NULL,
     "Constraints on parameters")
 ISL_ARG_BOOL(struct ppcg_options, non_negative_parameters, 0,
