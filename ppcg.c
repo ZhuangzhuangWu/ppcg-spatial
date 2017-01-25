@@ -795,66 +795,6 @@ static isl_stat compute_cache_block_dep(__isl_take isl_map *cache_block_map, voi
 	return isl_stat_ok;
 }
 
-/* Compute the spatial locality dependences
-  */
-static void compute_spatial_locality_deps(struct ppcg_scop *ps)
-{
-	struct spatial_deps_data data = {ps};
-	isl_space *space;
-	space = isl_union_map_get_space(ps->dep_flow);
-
-	data.res = isl_union_map_empty(space);
-	if(isl_union_map_foreach_map(ps->tagged_cache_block_reads, &compute_cache_block_dep, &data) < 0)
-		data.res = isl_union_map_free(data.res);
-
-	if(isl_union_map_foreach_map(ps->tagged_cache_block_must_writes, &compute_cache_block_dep, &data) < 0)
-		data.res = isl_union_map_free(data.res);
-
-	ps->tagged_cache_block_dep_flow = data.res;
-	ps->cache_block_dep_flow = isl_union_map_copy(ps->tagged_cache_block_dep_flow);
-	ps->cache_block_dep_flow = isl_union_map_factor_domain(ps->cache_block_dep_flow);
-}
-
-/* Compute the spatial locality dependences
-  */
-static void compute_spatial_locality_flow_dep(struct ppcg_scop *ps)
-{
-	isl_union_access_info *access;
-	isl_union_flow *flow;
-
-	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->cache_block_reads));
-	access = isl_union_access_info_set_must_source(access,
-				isl_union_map_copy(ps->cache_block_must_writes));
-	access = isl_union_access_info_set_may_source(access,
-				isl_union_map_copy(ps->cache_block_may_writes));
-	access = isl_union_access_info_set_schedule(access,
-				isl_schedule_copy(ps->schedule));
-	flow = isl_union_access_info_compute_flow(access);
-
-	ps->cache_block_dep_flow = isl_union_flow_get_may_dependence(flow);
-	isl_union_flow_free(flow);
-}
-
-/* Compute the spatial locality dependences
-  */
-static void compute_spatial_locality_rar_dep(struct ppcg_scop *ps)
-{
-	isl_union_access_info *access;
-	isl_union_flow *flow;
-
-	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->cache_block_reads));
-	access = isl_union_access_info_set_must_source(access,
-				isl_union_map_copy(ps->cache_block_reads));
-	access = isl_union_access_info_set_may_source(access,
-				isl_union_map_copy(ps->cache_block_reads));
-	access = isl_union_access_info_set_schedule(access,
-				isl_schedule_copy(ps->schedule));
-	flow = isl_union_access_info_compute_flow(access);
-
-	ps->cache_block_dep_rar = isl_union_flow_get_may_dependence(flow);
-	isl_union_flow_free(flow);
-}
-
 static void compute_adjacent_deps(struct ppcg_scop *ps)
 {
 	isl_union_access_info *access;
@@ -944,11 +884,6 @@ static void compute_dependences(struct ppcg_scop *scop)
 	else
 		compute_flow_dep(scop);
 
-	if (scop->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
-		compute_spatial_locality_deps(scop);
-//		compute_spatial_locality_flow_dep(scop);
-//		compute_spatial_locality_rar_dep(scop);
-	}
 	//isl_union_map_dump(scop->dep_flow);
 	//isl_union_map_dump(scop->tagged_dep_flow);
 	//compute_adjacent_deps(scop);
@@ -1008,6 +943,61 @@ static void add_dependences(
 }
 
 static isl_union_map *union_wrap_with_array_name(isl_union_map *);
+static isl_union_map *union_map_extend_accesses(isl_union_map *);
+static isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *, int);
+
+static void compute_array_tagged_dependences_groups(struct ppcg_scop *ps)
+{
+	isl_union_map *cache_block_reads =
+		map_array_accesses_to_cache_blocks(ps->reads, CACHE_SIZE);
+	// isl_union_map *cache_block_may_writes =
+	// 	map_array_accesses_to_cache_blocks(ps->may_writes, CACHE_SIZE);
+	isl_union_map *cache_block_must_writes =
+		map_array_accesses_to_cache_blocks(ps->must_writes, CACHE_SIZE);
+
+	isl_union_map *tagged_cache_block_reads =
+		union_wrap_with_array_name(
+			union_map_extend_accesses(cache_block_reads));
+	isl_union_map *tagged_cache_block_must_writes =
+		union_wrap_with_array_name(
+			union_map_extend_accesses(cache_block_must_writes));
+	isl_union_map *empty = isl_union_map_empty(
+		isl_union_map_get_space(tagged_cache_block_reads));
+
+	isl_schedule *sched = isl_schedule_copy(ps->schedule);
+	sched = isl_schedule_pullback_union_pw_multi_aff(sched,
+		ps->cache_array_tagger);
+	ps->cache_array_tagged_dep = isl_union_map_empty(
+		isl_union_set_get_space(ps->domain));
+
+	// RAW
+	add_dependences(ps,
+					isl_union_map_copy(tagged_cache_block_reads),
+					isl_union_map_copy(tagged_cache_block_must_writes),
+					isl_union_map_copy(empty),
+					isl_schedule_copy(sched));
+
+	// RAR
+	add_dependences(ps,
+					isl_union_map_copy(tagged_cache_block_reads),
+					isl_union_map_copy(tagged_cache_block_reads),
+					isl_union_map_copy(empty),
+					isl_schedule_copy(sched));
+
+	// WAR
+	add_dependences(ps,
+					isl_union_map_copy(tagged_cache_block_must_writes),
+					isl_union_map_copy(tagged_cache_block_reads),
+					isl_union_map_copy(empty),
+					isl_schedule_copy(sched));
+
+	// WAW
+	add_dependences(ps,
+					isl_union_map_copy(tagged_cache_block_must_writes),
+					tagged_cache_block_must_writes,
+					empty,
+					sched);
+}
 
 static void compute_array_tagged_dependences(struct ppcg_scop *ps)
 {
@@ -1528,9 +1518,10 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 	if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
 		isl_union_map_free(ps->cache_block_dep_flow);
 		isl_union_map_free(ps->cache_block_dep_rar);
-		isl_union_map_free(ps->cache_block_may_writes);
-		isl_union_map_free(ps->cache_block_must_writes);
-		isl_union_map_free(ps->cache_block_reads);
+	}
+
+	if (ps->options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL) {
+		isl_union_map_free(ps->dep_flow_uniform);
 	}
 
 	// isl_union_map_free(ps->adjacent_reads);
@@ -2475,31 +2466,31 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 		ps->independence = isl_union_map_union(ps->independence,
 			isl_union_map_copy(scop->independences[i]->filter));
 
-	ps->retagged_must_writes = union_map_transform(
-		isl_union_map_copy(ps->tagged_must_writes),
-		&retag_map_helper, "1must_write");
-	ps->retagged_reads = union_map_transform(
-		isl_union_map_copy(ps->tagged_reads),
-		&retag_map_helper, "2read");
-	compute_retagged_tagger(ps);
-	compute_retagged_dependences(ps);
-	ps->retagged_dep = union_map_filter_uniform(ps->retagged_dep);
+	if (options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
+		ps->retagged_must_writes = union_map_transform(
+			isl_union_map_copy(ps->tagged_must_writes),
+			&retag_map_helper, "1must_write");
+		ps->retagged_reads = union_map_transform(
+			isl_union_map_copy(ps->tagged_reads),
+			&retag_map_helper, "2read");
+		compute_retagged_tagger(ps);
+		compute_retagged_dependences(ps);
+	} else if (options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
+		ps->cache_array_tagged_reads = union_wrap_with_array_name(
+			map_array_accesses_to_next_elements(ps->reads));
+		ps->cache_array_tagged_may_writes = union_wrap_with_array_name(
+			map_array_accesses_to_next_elements(ps->may_writes));
+		ps->cache_array_tagged_must_writes = union_wrap_with_array_name(
+			map_array_accesses_to_next_elements(ps->must_writes));
 
-	isl_union_map_debug(ps->retagged_dep);
-
-	if (options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
-		ps->cache_block_reads = map_array_accesses_to_cache_blocks(ps->reads, CACHE_SIZE);
-		ps->cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->may_writes, CACHE_SIZE);
-		ps->cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->must_writes, CACHE_SIZE);
-
-		ps->tagged_cache_block_reads = map_array_accesses_to_cache_blocks(ps->tagged_reads, CACHE_SIZE);
-		ps->tagged_cache_block_may_writes = map_array_accesses_to_cache_blocks(ps->tagged_may_writes, CACHE_SIZE);
-		ps->tagged_cache_block_must_writes = map_array_accesses_to_cache_blocks(ps->tagged_must_writes, CACHE_SIZE);
+		compute_array_tagger(ps);
+		// compute_array_tagged_dependences(ps);
+		compute_array_tagged_dependences_groups(ps);
 	}
 
-	//ps->adjacent_reads = map_array_accesses_to_next_element(ps->reads);
-	//ps->adjacent_may_writes = map_array_accesses_to_next_element(ps->may_writes);
-	//ps->adjacent_must_writes = map_array_accesses_to_next_element(ps->must_writes);
+	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_SPATIAL ||
+	    options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
+		ps->retagged_dep = union_map_filter_uniform(ps->retagged_dep);
 
 #if 0
 	ps->cache_accesses_from_must = map_array_accesses_to_next_elements(ps->must_writes);
@@ -2508,16 +2499,6 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 					map_array_accesses_to_next_elements(ps->reads));
 #endif
 
-	ps->cache_array_tagged_reads = union_wrap_with_array_name(
-		map_array_accesses_to_next_elements(ps->reads));
-	ps->cache_array_tagged_may_writes = union_wrap_with_array_name(
-		map_array_accesses_to_next_elements(ps->may_writes));
-	ps->cache_array_tagged_must_writes = union_wrap_with_array_name(
-		map_array_accesses_to_next_elements(ps->must_writes));
-
-	// compute_array_tagger(ps);
-	// compute_array_tagged_dependences(ps);
-
 	ps->counted_accesses = compute_counted_accesses(ps->tagged_reads,
 		ps->tagged_may_writes, ps->tagged_must_writes);
 
@@ -2525,8 +2506,9 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	compute_dependences(ps);
 	eliminate_dead_code(ps);
 
-	ps->dep_flow_uniform = union_map_filter_uniform(
-		isl_union_map_copy(ps->dep_flow));
+	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
+		ps->dep_flow_uniform = union_map_filter_uniform(
+			isl_union_map_copy(ps->dep_flow));
 
 	if (!ps->context || !ps->domain || !ps->call || !ps->reads ||
 	    !ps->may_writes || !ps->must_writes || !ps->tagged_must_kills ||
