@@ -806,66 +806,6 @@ static isl_stat compute_cache_block_dep(__isl_take isl_map *cache_block_map, voi
 	return isl_stat_ok;
 }
 
-static void compute_adjacent_deps(struct ppcg_scop *ps)
-{
-	isl_union_access_info *access;
-	isl_union_flow *flow;
-
-	// Construct access info from adjacent accesses:
-	// reading next cell should depend on anything that accessed the _previous_ cell.
-	// similar for WAW, WAR? :
-	// writing next cell should depend on anything that accessed the _previous_ cell.
-	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->adjacent_reads));
-	access = isl_union_access_info_set_must_source(access,
-		isl_union_map_copy(ps->must_writes));
-	access = isl_union_access_info_set_may_source(access,
-		isl_union_map_copy(ps->may_writes));
-	access = isl_union_access_info_set_schedule(access,
-		isl_schedule_copy(ps->schedule));
-	flow = isl_union_access_info_compute_flow(access);
-	isl_union_map_dump(ps->adjacent_reads);
-	isl_union_map_dump(ps->must_writes);
-	isl_union_map_dump(ps->may_writes);
-	isl_union_flow_dump(flow);
-
-	ps->adjacent_dep_flow = isl_union_flow_get_may_dependence(flow);
-
-	// RAR
-	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->adjacent_reads));
-	access = isl_union_access_info_set_may_source(access,
-		isl_union_map_copy(ps->reads));
-	access = isl_union_access_info_set_schedule(access,
-		isl_schedule_copy(ps->schedule));
-	flow = isl_union_access_info_compute_flow(access);
-
-	ps->adjacent_dep_rar = isl_union_flow_get_may_dependence(flow);
-
-	isl_union_map_dump(ps->adjacent_reads);
-	isl_union_map_dump(ps->reads);
-	isl_schedule_dump(ps->schedule);
-	isl_union_map_dump(ps->adjacent_dep_flow);
-
-	isl_union_flow_free(flow);
-}
-
-static void compute_cache_deps(struct ppcg_scop *ps)
-{
-	isl_union_access_info *access;
-	isl_union_flow *flow;
-
-	// Sinks are original sinks (reads for flow and RAR, writes for false).
-	// Let's keep only flow and RAR for now (they are not separable).
-	access = isl_union_access_info_from_sink(isl_union_map_copy(ps->reads));
-	access = isl_union_access_info_set_may_source(access, isl_union_map_copy(ps->cache_accesses_from_may));
-	access = isl_union_access_info_set_must_source(access, isl_union_map_copy(ps->cache_accesses_from_must));
-	access = isl_union_access_info_set_schedule(access, isl_schedule_copy(ps->schedule));
-	flow = isl_union_access_info_compute_flow(access);
-
-	ps->cache_dep = isl_union_flow_get_may_dependence(flow);
-	ps->cache_dep = isl_union_map_union(ps->cache_dep, isl_union_flow_get_must_dependence(flow));
-	isl_union_flow_free(flow);
-}
-
 /* Compute the dependences of the program represented by "scop".
  * Store the computed potential flow dependences
  * in scop->dep_flow and the reads with potentially no corresponding writes in
@@ -894,11 +834,6 @@ static void compute_dependences(struct ppcg_scop *scop)
 		compute_tagged_flow_dep(scop);
 	else
 		compute_flow_dep(scop);
-
-	//isl_union_map_dump(scop->dep_flow);
-	//isl_union_map_dump(scop->tagged_dep_flow);
-	//compute_adjacent_deps(scop);
-	compute_cache_deps(scop);
 
 	may_source = isl_union_map_union(isl_union_map_copy(scop->may_writes),
 					isl_union_map_copy(scop->reads));
@@ -1534,16 +1469,6 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 	if (ps->options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL) {
 		isl_union_map_free(ps->dep_flow_uniform);
 	}
-
-	// isl_union_map_free(ps->adjacent_reads);
-	// isl_union_map_free(ps->adjacent_may_writes);
-	// isl_union_map_free(ps->adjacent_must_writes);
-	// isl_union_map_free(ps->adjacent_dep_flow);
-	// isl_union_map_free(ps->adjacent_dep_rar);
-
-	isl_union_map_free(ps->cache_accesses_from_must);
-	isl_union_map_free(ps->cache_accesses_from_may);
-	isl_union_map_free(ps->cache_dep);
 
 	isl_union_map_free(ps->retagged_reads);
 	isl_union_map_free(ps->retagged_must_writes);
@@ -2502,13 +2427,6 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_SPATIAL ||
 	    options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
 		ps->retagged_dep = union_map_filter_uniform(ps->retagged_dep);
-
-#if 0
-	ps->cache_accesses_from_must = map_array_accesses_to_next_elements(ps->must_writes);
-	ps->cache_accesses_from_may = map_array_accesses_to_next_elements(ps->may_writes);
-	ps->cache_accesses_from_may = isl_union_map_union(ps->cache_accesses_from_may,
-					map_array_accesses_to_next_elements(ps->reads));
-#endif
 
 	ps->counted_accesses = compute_counted_accesses(ps->tagged_reads,
 		ps->tagged_may_writes, ps->tagged_must_writes);

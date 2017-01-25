@@ -656,12 +656,6 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 	if (ps->options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
 		proximity = isl_union_map_copy(ps->dep_flow_uniform);
 
-	//fprintf(stderr, "in CPU\n");
-	//isl_union_map_dump(ps->adjacent_dep_flow);
-	//isl_union_map_dump(ps->adjacent_dep_rar);
-	//proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->adjacent_dep_flow));
-	//proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->adjacent_dep_rar));
-
 	//proximity = isl_union_map_union(proximity, isl_union_map_copy(ps->cache_dep));
 	//proximity = isl_union_map_copy(ps->cache_dep);
 
