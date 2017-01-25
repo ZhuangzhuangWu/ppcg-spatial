@@ -111,6 +111,9 @@ ISL_ARG_CHOICE(struct ppcg_options, spatial_model, 0, "spatial-model",
 ISL_ARG_CHOICE(struct ppcg_options, remove_nonuniform, 0, "remove-nonuniform",
 	ppcg_remove_nonuniform_choice, PPCG_REMOVE_NONUNIFORM_SPATIAL,
 	"non-uniform dependences to remove")
+ISL_ARG_BOOL(struct ppcg_options, keep_proximity, 0, "keep-proximity", 1,
+	"keep original proximity dependences for clustering heuristic "
+	"instead of spatial proximity dependences")
 ISL_ARG_STR(struct ppcg_options, ctx, 0, "ctx", "context", NULL,
     "Constraints on parameters")
 ISL_ARG_BOOL(struct ppcg_options, non_negative_parameters, 0,

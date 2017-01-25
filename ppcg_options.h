@@ -54,6 +54,9 @@ struct ppcg_options {
 	#define	PPCG_REMOVE_NONUNIFORM_ALL		2
 	unsigned remove_nonuniform;
 
+	/* Keep original proximity dependences for clustering or use spatial. */
+	int keep_proximity;
+
 	/* The target we generate code for. */
 	int target;
 
