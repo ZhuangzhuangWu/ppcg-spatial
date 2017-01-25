@@ -364,7 +364,7 @@ static __isl_give isl_union_map *project_out_tags(
  */
 static void compute_tagger(struct ppcg_scop *ps)
 {
-	isl_union_map *tagged, *array_tag;
+	isl_union_map *tagged;
 	isl_union_pw_multi_aff *tagger;
 
 	tagged = isl_union_map_copy(ps->tagged_reads);
@@ -373,11 +373,6 @@ static void compute_tagger(struct ppcg_scop *ps)
 	tagged = isl_union_map_union(tagged,
 				isl_union_map_copy(ps->tagged_must_kills));
 	tagged = isl_union_map_universe(tagged);
-
-	array_tag = isl_union_map_copy(tagged);
-	ps->array_tagger = isl_union_map_domain_factor_range(array_tag);
-
-	//isl_union_map_dump(ps->array_tagger);
 
 	tagged = isl_union_set_unwrap(isl_union_map_domain(tagged));
 
