@@ -45,11 +45,17 @@ struct ppcg_options {
 	/* Maximal amount of shared memory. */
 	int max_shared_memory;
 
-	/* Model spatial locality while finding transformations. */
-	int model_spatial_locality;
+	/* Spatial locality model to use. */
+	#define PPCG_SPATIAL_MODEL_NONE		0
+	#define PPCG_SPATIAL_MODEL_GROUPS	1
+	#define PPCG_SPATIAL_MODEL_ENDS		2
+	unsigned spatial_model;
 
-	/* Use only cache block dependences */
-	int only_cache_block_deps;
+	/* Non-uniform dependences to remove. */
+	#define	PPCG_REMOVE_NONUNIFORM_NONE		0
+	#define	PPCG_REMOVE_NONUNIFORM_SPATIAL	1
+	#define	PPCG_REMOVE_NONUNIFORM_ALL		2
+	unsigned remove_nonuniform;
 
 	/* The target we generate code for. */
 	int target;
