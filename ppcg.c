@@ -2547,6 +2547,9 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	compute_dependences(ps);
 	eliminate_dead_code(ps);
 
+	ps->dep_flow_uniform = union_map_filter_uniform(
+		isl_union_map_copy(ps->dep_flow));
+
 	if (!ps->context || !ps->domain || !ps->call || !ps->reads ||
 	    !ps->may_writes || !ps->must_writes || !ps->tagged_must_kills ||
 	    !ps->must_kills || !ps->schedule || !ps->independence ||
