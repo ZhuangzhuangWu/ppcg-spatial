@@ -642,7 +642,8 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 	sc = isl_schedule_constraints_set_validity(sc, validity);
 
 	if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS ||
-		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
+		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS ||
+		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS_GROUPS) {
 		sc = isl_schedule_constraints_set_spatial_proximity(sc,
 			isl_union_map_copy(ps->retagged_dep));
 	}
