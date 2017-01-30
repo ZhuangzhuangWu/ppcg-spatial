@@ -30,6 +30,7 @@
 #include "cpu.h"
 
 #define CACHE_SIZE 32
+#define DISTANCE 3
 
 // #define isl_union_map_debug(a) \
 //   fprintf(stderr, "%s:%d in %s, %s\n  ", \
@@ -961,6 +962,8 @@ static __isl_give isl_union_map *union_map_drop_all_inequalities(
 
 static isl_union_map *map_array_accesses_to_next_elements(isl_union_map *);
 static isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *);
+static isl_union_map *map_array_accesses_to_next_elements_grouped(
+	isl_union_map *);
 static isl_map *retag_map_helper(isl_map *map, void *user);
 
 static void compute_retagged_dependences_model(struct ppcg_scop *ps,
@@ -1008,6 +1011,12 @@ static void compute_retagged_dependences_groups(struct ppcg_scop *ps)
 {
 	compute_retagged_dependences_model(ps,
 		&map_array_accesses_to_cache_blocks);
+}
+
+static void compute_retagged_dependences_ends_grouped(struct ppcg_scop *ps)
+{
+	compute_retagged_dependences_model(ps,
+		&map_array_accesses_to_next_elements_grouped);
 }
 
 isl_bool constraint_has_nonzero_coefficients(
@@ -1449,7 +1458,7 @@ static __isl_give isl_union_map *map_array_accesses_to_next_elements(
 
 	space = isl_union_map_get_space(access); // get the parameteric space
 	mapped = isl_union_map_empty(space);
-	array_access_next_data data = {mapped, CACHE_SIZE, 0};
+	array_access_next_data data = {mapped, DISTANCE, 0};
 
 	isl_union_map *extended = union_map_extend_accesses(access);
 
@@ -1460,6 +1469,117 @@ static __isl_give isl_union_map *map_array_accesses_to_next_elements(
 
 	return data.result;
 }
+
+struct next_elements_grouped_data {
+	int distance;
+	int group_size;
+	isl_union_map *result;
+};
+
+static isl_stat array_access_to_next_elements_grouped(
+	__isl_take isl_map *map, void *user)
+{
+	isl_space *space;
+	isl_local_space *local_space;
+	isl_constraint *constraint;
+	isl_map *mapper, *partial_identity, *mapped;
+	int n_dim, n_param;
+	isl_val *val;
+	isl_ctx *ctx = isl_map_get_ctx(map);
+	struct next_elements_grouped_data *data = user;
+
+	if (!isl_map_n_out(map)) {
+		return isl_stat_ok;
+	}
+
+	space = isl_map_get_space(map);
+	space = isl_space_range(space);
+	space = isl_space_map_from_domain_and_range(isl_space_copy(space), space);
+	mapper = isl_map_universe(isl_space_copy(space));
+
+	n_dim = isl_space_dim(space, isl_dim_in);
+	n_param = isl_space_dim(space, isl_dim_param);
+
+	mapper = isl_map_add_dims(mapper, isl_dim_param, 1);
+	local_space = isl_local_space_from_space(isl_space_copy(space));
+	local_space = isl_local_space_add_dims(local_space, isl_dim_param, 1);
+
+	constraint = isl_constraint_alloc_inequality(
+		isl_local_space_copy(local_space));
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_param, n_param, data->group_size);
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_out, n_dim - 1, -1);
+	constraint = isl_constraint_set_constant_si(constraint,
+		data->group_size - 1);
+	mapper = isl_map_add_constraint(mapper, constraint);
+
+	constraint = isl_constraint_alloc_inequality(
+		isl_local_space_copy(local_space));
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_param, n_param, data->group_size);
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_in, n_dim - 1, -1);
+	constraint = isl_constraint_set_constant_si(constraint,
+		data->group_size - 1);
+	mapper = isl_map_add_constraint(mapper, constraint);
+
+	constraint = isl_constraint_alloc_inequality(
+		isl_local_space_copy(local_space));
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_param, n_param, -data->group_size);
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_out, n_dim - 1, 1);
+	mapper = isl_map_add_constraint(mapper, constraint);
+
+	constraint = isl_constraint_alloc_inequality(
+		isl_local_space_copy(local_space));
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_param, n_param, -data->group_size);
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_in, n_dim - 1, 1);
+	mapper = isl_map_add_constraint(mapper, constraint);
+
+	constraint = isl_constraint_alloc_equality(local_space);
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_out, n_dim - 1, -1);
+	constraint = isl_constraint_set_coefficient_si(constraint,
+		isl_dim_in, n_dim - 1, 1);
+	constraint = isl_constraint_set_constant_si(constraint, data->distance);
+	mapper = isl_map_add_constraint(mapper, constraint);
+
+	mapper = isl_map_project_out(mapper, isl_dim_param, n_param, 1);
+
+	partial_identity = isl_map_identity(space);
+	partial_identity = isl_map_drop_constraints_involving_dims(
+		partial_identity, isl_dim_in, n_dim - 1, 1);
+	mapper = isl_map_intersect(mapper, partial_identity);
+
+	mapped = isl_map_apply_range(isl_map_copy(map), mapper);
+	mapped = isl_map_intersect_range(mapped, isl_map_range(isl_map_copy(map)));
+	mapped = isl_map_union(mapped, map);
+	data->result = isl_union_map_add_map(data->result, mapped);
+	if (!data->result)
+		return isl_stat_error;
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *map_array_accesses_to_next_elements_grouped(
+	__isl_keep isl_union_map *access)
+{
+	isl_union_map *result = isl_union_map_empty(
+		isl_union_map_get_space(access));
+	struct next_elements_grouped_data data = { DISTANCE, CACHE_SIZE, result };
+	access = union_map_extend_accesses(access);
+
+	if (isl_union_map_foreach_map(access,
+			&array_access_to_next_elements_grouped, &data) < 0)
+		data.result = isl_union_map_free(data.result);
+	isl_union_map_free(access);
+
+	return data.result;
+}
+
 
 /* Find a trivial access function that is linearly independent of other access
  * functions represented by equalities in the basic map "bmap".
@@ -1925,6 +2045,8 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 		compute_retagged_dependences(ps);
 	} else if (options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS) {
 		compute_retagged_dependences_groups(ps);
+	} else if (options->spatial_model == PPCG_SPATIAL_MODEL_ENDS_GROUPS) {
+		compute_retagged_dependences_ends_grouped(ps);
 	}
 
 	compute_tagger(ps);

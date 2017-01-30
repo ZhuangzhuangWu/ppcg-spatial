@@ -21,6 +21,7 @@ struct isl_arg_choice ppcg_spatial_model_choice[] = {
 	{"none",	PPCG_SPATIAL_MODEL_NONE},
 	{"groups",	PPCG_SPATIAL_MODEL_GROUPS},
 	{"ends",	PPCG_SPATIAL_MODEL_ENDS},
+	{"endsgrp",	PPCG_SPATIAL_MODEL_ENDS_GROUPS},
 	{0}
 };
 
@@ -106,7 +107,7 @@ ISL_ARG_BOOL(struct ppcg_options, use_shared_memory, 0, "shared-memory", 1,
 ISL_ARG_BOOL(struct ppcg_options, use_private_memory, 0, "private-memory", 1,
 	"use private memory in kernel code")
 ISL_ARG_CHOICE(struct ppcg_options, spatial_model, 0, "spatial-model",
-	ppcg_spatial_model_choice, PPCG_SPATIAL_MODEL_ENDS,
+	ppcg_spatial_model_choice, PPCG_SPATIAL_MODEL_ENDS_GROUPS,
 	"spatial locality model to use")
 ISL_ARG_CHOICE(struct ppcg_options, remove_nonuniform, 0, "remove-nonuniform",
 	ppcg_remove_nonuniform_choice, PPCG_REMOVE_NONUNIFORM_SPATIAL,

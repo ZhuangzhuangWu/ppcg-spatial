@@ -46,6 +46,7 @@ struct ppcg_options {
 	#define PPCG_SPATIAL_MODEL_NONE		0
 	#define PPCG_SPATIAL_MODEL_GROUPS	1
 	#define PPCG_SPATIAL_MODEL_ENDS		2
+	#define PPCG_SPATIAL_MODEL_ENDS_GROUPS	3
 	unsigned spatial_model;
 
 	/* Non-uniform dependences to remove. */
