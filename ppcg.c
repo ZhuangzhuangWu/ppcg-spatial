@@ -1470,6 +1470,105 @@ static __isl_give isl_union_map *map_array_accesses_to_next_elements(
 	return data.result;
 }
 
+static isl_bool access_is_full_ranked(__isl_take isl_basic_map *access)
+{
+	int n_in, n_out, n_cols, rank;
+	isl_mat *eqs;
+
+	if (!access)
+		return isl_bool_error;
+
+	access = isl_basic_map_affine_hull(access);
+	access = isl_basic_map_remove_divs(access);
+	n_in = isl_basic_map_n_in(access);
+	n_out = isl_basic_map_n_out(access);
+	access = isl_basic_map_drop_constraints_not_involving_dims(access,
+		isl_dim_in, 0, n_in);
+	access = isl_basic_map_drop_constraints_not_involving_dims(access,
+		isl_dim_out, 0, n_out);
+	eqs = isl_basic_map_equalities_matrix(access,
+		isl_dim_in, isl_dim_out, isl_dim_div, isl_dim_param, isl_dim_cst);
+	isl_basic_map_free(access);
+
+	n_cols = isl_mat_cols(eqs);
+	eqs = isl_mat_drop_cols(eqs, n_in + n_out, n_cols - n_in - n_out);
+	rank = isl_mat_rank(eqs);
+
+	// FIXME: does not belong to this function
+	// this decides to drop spatial proximity deps if the last access function
+	// is linearly dependent on the first ones, nothing to do with fullness
+	if (n_out > n_in && rank == n_in) {
+		int prefix_rank;
+		n_cols = isl_mat_cols(eqs);
+		eqs = isl_mat_drop_cols(eqs, n_cols - 1, 1);
+		prefix_rank = isl_mat_rank(eqs);
+		if (prefix_rank == rank) {
+			return isl_bool_false;
+			isl_mat_free(eqs);
+		}
+	}
+
+	isl_mat_free(eqs);
+
+	// FIXME: bad hack, possible optimization
+	if (n_in <= 1)
+		return isl_bool_false;
+
+	return (rank == n_in) ? isl_bool_true : isl_bool_false;
+}
+
+struct separate_by_full_ranked_data {
+	isl_map *full_ranked;
+	isl_map *non_full_ranked;
+};
+
+static isl_stat separate_by_full_ranked_bmap(__isl_take isl_basic_map *access,
+	void *user)
+{
+	struct separate_by_full_ranked_data *data = user;
+	isl_bool r = access_is_full_ranked(isl_basic_map_copy(access));
+	if (r == isl_bool_error) {
+		isl_basic_map_free(access);
+		return isl_stat_error;
+	}
+	if (r) {
+		data->full_ranked = isl_map_union(data->full_ranked,
+			isl_map_from_basic_map(access));
+	} else {
+		data->non_full_ranked = isl_map_union(data->non_full_ranked,
+			isl_map_from_basic_map(access));
+	}
+	return isl_stat_ok;
+}
+
+static isl_stat separate_by_full_ranked(__isl_keep isl_map *access,
+	__isl_give isl_map **full_ranked, __isl_give isl_map **non_full_ranked)
+{
+	isl_stat r;
+	struct separate_by_full_ranked_data data;
+	isl_space *space = isl_map_get_space(access);
+
+	data.full_ranked = isl_map_empty(isl_space_copy(space));
+	data.non_full_ranked = isl_map_empty(space);
+	if ((r = isl_map_foreach_basic_map(access,
+			&separate_by_full_ranked_bmap, &data)) != isl_stat_ok) {
+		data.full_ranked = isl_map_free(data.full_ranked);
+		data.non_full_ranked = isl_map_free(data.non_full_ranked);
+	}
+
+	if (full_ranked)
+		*full_ranked = data.full_ranked;
+	else
+		isl_map_free(data.full_ranked);
+
+	if (non_full_ranked)
+		*non_full_ranked = data.non_full_ranked;
+	else
+		isl_map_free(data.non_full_ranked);
+
+	return r;
+}
+
 struct next_elements_grouped_data {
 	int distance;
 	int group_size;
@@ -1483,6 +1582,7 @@ static isl_stat array_access_to_next_elements_grouped(
 	isl_local_space *local_space;
 	isl_constraint *constraint;
 	isl_map *mapper, *partial_identity, *mapped;
+	isl_map *full_ranked, *non_full_ranked;
 	int n_dim, n_param;
 	isl_val *val;
 	isl_ctx *ctx = isl_map_get_ctx(map);
@@ -1491,6 +1591,10 @@ static isl_stat array_access_to_next_elements_grouped(
 	if (!isl_map_n_out(map)) {
 		return isl_stat_ok;
 	}
+
+	separate_by_full_ranked(map, &full_ranked, &non_full_ranked);
+	isl_map_free(map);
+	map = full_ranked;
 
 	space = isl_map_get_space(map);
 	space = isl_space_range(space);
@@ -1558,6 +1662,7 @@ static isl_stat array_access_to_next_elements_grouped(
 	mapped = isl_map_apply_range(isl_map_copy(map), mapper);
 	mapped = isl_map_intersect_range(mapped, isl_map_range(isl_map_copy(map)));
 	mapped = isl_map_union(mapped, map);
+	mapped = isl_map_union(mapped, non_full_ranked);
 	data->result = isl_union_map_add_map(data->result, mapped);
 	if (!data->result)
 		return isl_stat_error;
