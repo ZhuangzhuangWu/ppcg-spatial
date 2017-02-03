@@ -2132,6 +2132,10 @@ static __isl_give isl_printer *transform(__isl_take isl_printer *p,
 
 	scop = pet_scop_align_params(scop);
 	ps = ppcg_scop_from_pet_scop(scop, data->options);
+	if (!ps) {
+		pet_scop_free(scop);
+		return isl_printer_free(p);
+	}
 
 	p = data->transform(p, ps, data->user);
 
