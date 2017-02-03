@@ -646,6 +646,8 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS_GROUPS) {
 		sc = isl_schedule_constraints_set_spatial_proximity(sc,
 			isl_union_map_copy(ps->retagged_dep));
+		sc = isl_schedule_constraints_set_counted_accesses(sc,
+			isl_union_map_copy(ps->counted_accesses));
 	}
 
 	if (ps->options->keep_proximity) {
@@ -658,8 +660,6 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 	}
 
 	sc = isl_schedule_constraints_set_proximity(sc, proximity);
-	sc = isl_schedule_constraints_set_counted_accesses(sc,
-		isl_union_map_copy(ps->counted_accesses));
 
 	return sc;
 }
