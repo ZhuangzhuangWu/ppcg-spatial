@@ -123,6 +123,9 @@ ISL_ARG_BOOL(struct ppcg_options, non_negative_parameters, 0,
 ISL_ARG_BOOL(struct ppcg_options, tile, 0, "tile", 0,
 	"perform tiling (C target)")
 ISL_ARG_INT(struct ppcg_options, tile_size, 'S', "tile-size", "size", 32, NULL)
+ISL_ARG_BOOL(struct ppcg_options, tile_maximize_outer_coincidence, 0,
+	"tile-maximize-outer-coincidence", 0,
+	"Interchange tile loops to maximize outer coincidence within each band")
 ISL_ARG_STR(struct ppcg_options, sizes, 0, "sizes", "sizes", NULL,
 	"Per kernel tile, grid and block sizes")
 ISL_ARG_INT(struct ppcg_options, max_shared_memory, 0,

@@ -33,6 +33,9 @@ struct ppcg_options {
 	int tile;
 	int tile_size;
 
+	/* Interchange tile loops in bands to maximize outer coincidence */
+	int tile_maximize_outer_coincidence;
+
 	/* Take advantage of private memory. */
 	int use_private_memory;
 

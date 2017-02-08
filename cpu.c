@@ -106,7 +106,7 @@ struct ast_build_userinfo {
 	int in_parallel_for;
 };
 
-/* Check if the current scheduling dimension is parallel.
+/* Check if the scheduling "dimension" in the "schedule" map is parallel.
  *
  * We check for parallelism by verifying that the loop does not carry any
  * dependences.
@@ -122,18 +122,12 @@ struct ast_build_userinfo {
  * The distance is zero in the current dimension if it is a subset of a map
  * with equal values for the current dimension.
  */
-static int ast_schedule_dim_is_parallel(__isl_keep isl_ast_build *build,
-	struct ppcg_scop *scop)
+static int schedule_dim_is_parallel(__isl_take isl_union_map *schedule,
+	unsigned dimension, struct ppcg_scop *scop)
 {
-	isl_union_map *schedule, *deps;
-	isl_map *schedule_deps, *test;
-	isl_space *schedule_space;
-	unsigned i, dimension, is_parallel;
-
-	schedule = isl_ast_build_get_schedule(build);
-	schedule_space = isl_ast_build_get_schedule_space(build);
-
-	dimension = isl_space_dim(schedule_space, isl_dim_out) - 1;
+	isl_union_map *deps;
+	isl_map *test, *schedule_deps;
+	unsigned i, is_parallel;
 
 	deps = isl_union_map_copy(scop->dep_flow);
 	deps = isl_union_map_union(deps, isl_union_map_copy(scop->dep_false));
@@ -146,7 +140,6 @@ static int ast_schedule_dim_is_parallel(__isl_keep isl_ast_build *build,
 
 	if (isl_union_map_is_empty(deps)) {
 		isl_union_map_free(deps);
-		isl_space_free(schedule_space);
 		return 1;
 	}
 
@@ -161,11 +154,28 @@ static int ast_schedule_dim_is_parallel(__isl_keep isl_ast_build *build,
 			      dimension);
 	is_parallel = isl_map_is_subset(schedule_deps, test);
 
-	isl_space_free(schedule_space);
 	isl_map_free(test);
 	isl_map_free(schedule_deps);
 
 	return is_parallel;
+}
+
+/* Check if the current scheduling dimension is parallel.
+ */
+static int ast_schedule_dim_is_parallel(__isl_keep isl_ast_build *build,
+	struct ppcg_scop *scop)
+{
+	isl_union_map *schedule, *deps;
+	isl_map *schedule_deps, *test;
+	isl_space *schedule_space;
+	unsigned dimension;
+
+	schedule = isl_ast_build_get_schedule(build);
+	schedule_space = isl_ast_build_get_schedule_space(build);
+
+	dimension = isl_space_dim(schedule_space, isl_dim_out) - 1;
+	isl_space_free(schedule_space);
+	return schedule_dim_is_parallel(schedule, dimension, scop);
 }
 
 /* Mark a for node openmp parallel, if it is the outermost parallel for node.
@@ -556,8 +566,62 @@ static __isl_give isl_schedule_node *tile(__isl_take isl_schedule_node *node,
 	return node;
 }
 
+/* Pull parallel loops to the start of a band node "node".
+ * Leave untouched non-permutable band nodes.
+ *
+ * First recalculate "coincident" flags according to the dependences in "scop".
+ * Then permute loops putting all coincident loops in the original order
+ * followed by all non-coincident loops in the original order.
+ */
+static __isl_give isl_schedule_node *hoist_parallel_loops(
+	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+{
+	int i, n;
+	isl_ctx *ctx;
+	int *order;
+	int current_loop = 0;
+
+	if (!node || isl_schedule_node_get_type(node) != isl_schedule_node_band ||
+	    isl_schedule_node_band_get_permutable(node) != isl_bool_true)
+		return node;
+
+	n = isl_schedule_node_band_n_member(node);
+
+	for (int i = 0; i < n; ++i) {
+		isl_union_map *schedule =
+			isl_schedule_node_band_get_partial_schedule_union_map(node);
+		int coincident = schedule_dim_is_parallel(schedule, i, scop);
+		node = isl_schedule_node_band_member_set_coincident(node,
+			i, coincident);
+	}
+
+	ctx = isl_schedule_node_get_ctx(node);
+	order = isl_calloc_array(ctx, int, n);
+	for (int i = 0; i < n; ++i) {
+		if (isl_schedule_node_band_member_get_coincident(node, i)
+		    == isl_bool_true)
+			order[i] = current_loop++;
+	}
+	for (int i = 0; i < n; ++i) {
+		if (isl_schedule_node_band_member_get_coincident(node, i)
+		    == isl_bool_false)
+			order[i] = current_loop++;
+	}
+	if (current_loop != n) {
+		free(order);
+		return isl_schedule_node_free(node);
+	}
+	node = isl_schedule_node_band_permute(node, order);
+	free(order);
+
+	return node;
+}
+
 /* Tile "node", if it is a band node with at least 2 members.
  * The tile sizes are set from the "tile_size" option.
+ * Splits node into two bands: tile loops and point loops.
+ * If "tile_maximize_outer_coincidence" option is set, interchange tile loops
+ * so that parallel loops come foremost in the tile band.
  */
 static __isl_give isl_schedule_node *tile_band(
 	__isl_take isl_schedule_node *node, void *user)
@@ -577,7 +641,14 @@ static __isl_give isl_schedule_node *tile_band(
 	space = isl_schedule_node_band_get_space(node);
 	sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
 
-	return tile(node, sizes);
+	node = tile(node, sizes);
+	if (!node)
+		return node;
+
+	if (scop->options->tile_maximize_outer_coincidence)
+		node = hoist_parallel_loops(node, scop);
+
+	return node;
 }
 
 /* Construct schedule constraints from the dependences in ps
