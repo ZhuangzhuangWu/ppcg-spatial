@@ -730,6 +730,128 @@ static __isl_give isl_union_map *bandwise_dependences(
 	return validity;
 }
 
+static __isl_give isl_schedule_node *continue_find_next_child_node_band(
+	__isl_take isl_schedule_node *node);
+
+/* Finds first band child of "node" in depth-first traversal order,
+ * including the given node.
+ * Intended to be called on tree root.
+ */
+static __isl_give isl_schedule_node *find_next_child_node_band(
+	__isl_take isl_schedule_node *node)
+{
+	int i, n;
+	isl_schedule_node *child;
+
+	if (!node)
+		return NULL;
+
+	if (isl_schedule_node_get_type(node) == isl_schedule_node_band)
+		return node;
+	if (isl_schedule_node_has_children(node) != isl_bool_true)
+		return NULL;
+	node = isl_schedule_node_first_child(node);
+	child = find_next_child_node_band(isl_schedule_node_copy(node));
+	if (child) {
+		isl_schedule_node_free(node);
+		return child;
+	}
+	return continue_find_next_child_node_band(node);
+}
+
+/* Continue looking for the first band child of "node" in the depth-first order
+ * starting from the next sibling of "node" inclusive.  Assumes that the
+ * subtree of the current node was already traversed.
+ */
+static __isl_give isl_schedule_node *continue_find_next_child_node_band(
+	__isl_take isl_schedule_node *node)
+{
+	if (isl_schedule_node_has_next_sibling(node) != isl_bool_true)
+		return NULL;
+
+	node = isl_schedule_node_next_sibling(node);
+	return find_next_child_node_band(node);
+}
+
+static __isl_give isl_schedule_node *schedule_get_single_node_band(
+	__isl_take isl_schedule *schedule)
+{
+	isl_schedule_node *ancestor = NULL, *other;
+	isl_schedule_node *node = isl_schedule_get_root(schedule);
+	isl_ctx *ctx = isl_schedule_node_get_ctx(node);
+
+	node = find_next_child_node_band(node);
+	if (!node) // not found
+		goto error;
+
+	ancestor = isl_schedule_node_copy(node);
+
+	while (1) {
+		isl_bool r;
+		other = continue_find_next_child_node_band(ancestor);
+		if (other) {// found another one
+			node = isl_schedule_node_free(node);
+			break;
+		}
+		r = isl_schedule_node_has_parent(ancestor);
+		if (r == isl_bool_error)
+			goto error;
+		if (r != isl_bool_true)
+			break;
+		ancestor = isl_schedule_node_parent(ancestor);
+	}
+
+	isl_schedule_node_free(ancestor);
+	isl_schedule_free(schedule);
+	return node;
+
+error:
+	isl_schedule_node_free(ancestor);
+	isl_schedule_free(schedule);
+	return NULL;
+}
+
+static __isl_give isl_schedule_node *reschedule_tile_loops(
+	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+{
+	isl_union_map *validity, *coincidence;
+	isl_union_set *band_domain;
+	isl_schedule_constraints *constraints;
+	int orig_schedule_whole_component;
+	isl_ctx *ctx = isl_schedule_node_get_ctx(node);
+	isl_schedule *schedule;
+	isl_schedule_node *rescheduled_node;
+
+	band_domain = isl_schedule_node_get_universe_domain(node);
+	band_domain = isl_union_set_intersect(band_domain,
+		isl_union_set_copy(scop->domain));
+
+	validity = bandwise_dependences(node, scop);
+
+	coincidence = isl_union_map_union(isl_union_map_copy(scop->dep_flow),
+		isl_union_map_copy(scop->dep_false)); // FIXME: account for live-range reodering
+
+	constraints = isl_schedule_constraints_on_domain(band_domain);
+	constraints = isl_schedule_constraints_set_validity(constraints,
+		validity);
+	constraints = isl_schedule_constraints_set_proximity(constraints,
+		isl_union_map_copy(scop->dep_flow));
+	constraints = isl_schedule_constraints_set_coincidence(constraints,
+		coincidence);
+
+	orig_schedule_whole_component =
+		isl_options_get_schedule_whole_component(ctx);
+	isl_options_set_schedule_whole_component(ctx, 1);
+
+	// This schedule MUST have only one band, traverse the tree until we find
+	// first band.  Continue traversal to ensure it is the only one.
+	schedule = isl_schedule_constraints_compute_schedule(constraints);
+	rescheduled_node = schedule_get_single_node_band(schedule);
+	isl_options_set_schedule_whole_component(ctx,
+		orig_schedule_whole_component);
+	return rescheduled_node;
+}
+
 /* Pull parallel loops to the start of a band node "node".
  * Leave untouched non-permutable band nodes.
  *
@@ -803,14 +925,34 @@ static __isl_give isl_schedule_node *tile_band(
 		return node;
 
 	space = isl_schedule_node_band_get_space(node);
-	sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
+	sizes = ppcg_multi_val_from_int(isl_space_copy(space), scop->options->tile_size);
 
 	node = tile(node, sizes);
 	if (!node)
 		return node;
 
-	if (scop->options->tile_maximize_outer_coincidence)
-		node = hoist_parallel_loops(node, scop);
+	if (scop->options->tile_maximize_outer_coincidence) {
+		// Reschedule tile loops using a different policy.  Then substitute
+		// current tile loop schedule with the newly computed one while
+		// keeping point loops and their children intact.
+
+		isl_schedule_node *rescheduled;
+
+		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
+		rescheduled = reschedule_tile_loops(isl_schedule_node_copy(node), scop);
+		rescheduled = tile(rescheduled, sizes);
+
+		isl_schedule_node *rescheduled_point_loop_node =
+			isl_schedule_node_first_child(rescheduled);
+		rescheduled_point_loop_node =
+			isl_schedule_node_replace_tree(rescheduled_point_loop_node,
+				isl_schedule_node_first_child(isl_schedule_node_copy(node)));
+		rescheduled = isl_schedule_node_parent(rescheduled_point_loop_node);
+
+		node = isl_schedule_node_replace_tree(node, rescheduled);
+
+		// node = hoist_parallel_loops(node, scop);
+	}
 
 	return node;
 }
