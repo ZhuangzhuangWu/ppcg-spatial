@@ -811,33 +811,53 @@ error:
 	return NULL;
 }
 
-static __isl_give isl_schedule_node *reschedule_tile_loops(
-	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+static __isl_give isl_union_set *bandwise_domain(
+	__isl_keep isl_schedule_node *node, struct ppcg_scop *scop)
 {
-	isl_union_map *validity, *coincidence;
 	isl_union_set *band_domain;
-	isl_schedule_constraints *constraints;
-	int orig_schedule_whole_component;
-	isl_ctx *ctx = isl_schedule_node_get_ctx(node);
-	isl_schedule *schedule;
-	isl_schedule_node *rescheduled_node;
+
+	if (isl_schedule_node_get_type(node) != isl_schedule_node_band)
+		return NULL;
 
 	band_domain = isl_schedule_node_get_universe_domain(node);
 	band_domain = isl_union_set_intersect(band_domain,
 		isl_union_set_copy(scop->domain));
 
+	return band_domain;
+}
+
+static __isl_give isl_schedule_constraints *proximity_validity_constraints(
+	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+{
+	isl_union_set *domain;
+	isl_union_map *validity, *proximity;
+	isl_schedule_constraints *constraints;
+
+	domain = bandwise_domain(node, scop);
 	validity = bandwise_dependences(node, scop);
 
-	coincidence = isl_union_map_union(isl_union_map_copy(scop->dep_flow),
-		isl_union_map_copy(scop->dep_false)); // FIXME: account for live-range reodering
+	proximity = isl_union_map_copy(scop->dep_flow);
+	proximity = isl_union_map_intersect_domain(proximity,
+		isl_union_set_copy(domain));
+	proximity = isl_union_map_intersect_range(proximity,
+		isl_union_set_copy(domain));
 
-	constraints = isl_schedule_constraints_on_domain(band_domain);
+	constraints = isl_schedule_constraints_on_domain(domain);
 	constraints = isl_schedule_constraints_set_validity(constraints,
 		validity);
 	constraints = isl_schedule_constraints_set_proximity(constraints,
-		isl_union_map_copy(scop->dep_flow));
-	constraints = isl_schedule_constraints_set_coincidence(constraints,
-		coincidence);
+		proximity);// FIXME: account for live-range reodering
+
+	return constraints;
+}
+
+static __isl_give isl_schedule_node *reschedule_whole_component(
+	__isl_take isl_schedule_constraints *constraints)
+{
+	int orig_schedule_whole_component;
+	isl_schedule *schedule;
+	isl_schedule_node *rescheduled_node;
+	isl_ctx *ctx = isl_schedule_constraints_get_ctx(constraints);
 
 	orig_schedule_whole_component =
 		isl_options_get_schedule_whole_component(ctx);
@@ -850,6 +870,65 @@ static __isl_give isl_schedule_node *reschedule_tile_loops(
 	isl_options_set_schedule_whole_component(ctx,
 		orig_schedule_whole_component);
 	return rescheduled_node;
+}
+
+static __isl_give isl_schedule_node *reschedule_tile_loops(
+	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+{
+	isl_union_map *coincidence;
+	isl_union_set *band_domain;
+	isl_schedule_constraints *constraints;
+
+	constraints = proximity_validity_constraints(node, scop);
+	band_domain = isl_schedule_constraints_get_domain(constraints);
+
+	coincidence = isl_union_map_union(isl_union_map_copy(scop->dep_flow),
+		isl_union_map_copy(scop->dep_false)); // FIXME: account for live-range reodering
+	coincidence = isl_union_map_intersect_domain(coincidence,
+		isl_union_set_copy(band_domain));
+	coincidence = isl_union_map_intersect_range(coincidence, band_domain);
+	constraints = isl_schedule_constraints_set_coincidence(constraints,
+		coincidence);
+
+	return reschedule_whole_component(constraints);
+}
+
+static __isl_give isl_schedule_node *reschedule_point_loops(
+	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+{
+	isl_schedule_constraints *constraints;
+	isl_union_map *spatial_proximity;
+	isl_union_set *band_domain, *access_set;
+	isl_union_map *access_map, *counted_accesses;
+
+	constraints = proximity_validity_constraints(node, scop);
+	band_domain = isl_schedule_constraints_get_domain(constraints);
+	// TODO: spatial proximity is computed always, but may be done on per-tile level
+	// not sure whether it is faster or not (many small computations or one large)
+	spatial_proximity = isl_union_map_copy(scop->retagged_dep);
+
+	access_map = isl_union_map_copy(scop->counted_accesses);
+	access_map = isl_union_set_unwrap(isl_union_map_domain(access_map));
+	access_map = isl_union_map_universe(access_map);
+	access_map = isl_union_map_intersect_domain(access_map,
+		isl_union_set_copy(band_domain));
+	access_set = isl_union_map_wrap(access_map);
+
+	spatial_proximity = isl_union_map_intersect_domain(spatial_proximity,
+		isl_union_set_copy(access_set));
+	spatial_proximity = isl_union_map_intersect_range(spatial_proximity,
+		isl_union_set_copy(access_set));
+
+	counted_accesses = isl_union_map_copy(scop->counted_accesses);
+	counted_accesses = isl_union_map_intersect_domain(counted_accesses,
+		access_set);
+
+	constraints = isl_schedule_constraints_set_spatial_proximity(constraints,
+		spatial_proximity);
+	constraints = isl_schedule_constraints_set_counted_accesses(constraints,
+		counted_accesses);
+
+	return reschedule_whole_component(constraints);
 }
 
 /* Pull parallel loops to the start of a band node "node".
@@ -952,6 +1031,18 @@ static __isl_give isl_schedule_node *tile_band(
 		node = isl_schedule_node_replace_tree(node, rescheduled);
 
 		// node = hoist_parallel_loops(node, scop);
+	} else if (scop->options->tile_spatial == PPCG_TILE_SPATIAL_LAST) {
+
+		isl_schedule_node *rescheduled;
+
+		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
+		rescheduled = reschedule_point_loops(isl_schedule_node_copy(node), scop);
+		rescheduled = tile(rescheduled, sizes);
+
+		rescheduled = isl_schedule_node_first_child(rescheduled);
+		node = isl_schedule_node_first_child(node);
+		node = isl_schedule_node_replace_tree(node, rescheduled);
+		node = isl_schedule_node_parent(node);
 	}
 
 	return node;
@@ -1021,9 +1112,11 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 		sc = isl_schedule_constraints_set_coincidence(sc, coincidence);
 	sc = isl_schedule_constraints_set_validity(sc, validity);
 
-	if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS ||
-		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS ||
-		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS_GROUPS) {
+	if ((ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS ||
+		 ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS ||
+		 ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS_GROUPS)
+	    && (!ps->options->tile ||
+		    ps->options->tile_spatial != PPCG_TILE_SPATIAL_LAST)) {
 		sc = isl_schedule_constraints_set_spatial_proximity(sc,
 			isl_union_map_copy(ps->retagged_dep));
 		sc = isl_schedule_constraints_set_counted_accesses(sc,
