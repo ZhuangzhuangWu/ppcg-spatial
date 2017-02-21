@@ -931,57 +931,6 @@ static __isl_give isl_schedule_node *reschedule_point_loops(
 	return reschedule_whole_component(constraints);
 }
 
-/* Pull parallel loops to the start of a band node "node".
- * Leave untouched non-permutable band nodes.
- *
- * First recalculate "coincident" flags according to the dependences in "scop".
- * Then permute loops putting all coincident loops in the original order
- * followed by all non-coincident loops in the original order.
- */
-static __isl_give isl_schedule_node *hoist_parallel_loops(
-	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
-{
-	int i, n;
-	isl_ctx *ctx;
-	int *order;
-	int current_loop = 0;
-
-	if (!node || isl_schedule_node_get_type(node) != isl_schedule_node_band ||
-	    isl_schedule_node_band_get_permutable(node) != isl_bool_true)
-		return node;
-
-	n = isl_schedule_node_band_n_member(node);
-
-	for (int i = 0; i < n; ++i) {
-		isl_union_map *schedule =
-			isl_schedule_node_band_get_partial_schedule_union_map(node);
-		int coincident = schedule_dim_is_parallel(schedule, i, scop);
-		node = isl_schedule_node_band_member_set_coincident(node,
-			i, coincident);
-	}
-
-	ctx = isl_schedule_node_get_ctx(node);
-	order = isl_calloc_array(ctx, int, n);
-	for (int i = 0; i < n; ++i) {
-		if (isl_schedule_node_band_member_get_coincident(node, i)
-		    == isl_bool_true)
-			order[i] = current_loop++;
-	}
-	for (int i = 0; i < n; ++i) {
-		if (isl_schedule_node_band_member_get_coincident(node, i)
-		    == isl_bool_false)
-			order[i] = current_loop++;
-	}
-	if (current_loop != n) {
-		free(order);
-		return isl_schedule_node_free(node);
-	}
-	node = isl_schedule_node_band_permute(node, order);
-	free(order);
-
-	return node;
-}
-
 /* Tile "node", if it is a band node with at least 2 members.
  * The tile sizes are set from the "tile_size" option.
  * Splits node into two bands: tile loops and point loops.
