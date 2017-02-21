@@ -953,7 +953,7 @@ static __isl_give isl_schedule_node *tile_band(
 		return node;
 
 	space = isl_schedule_node_band_get_space(node);
-	sizes = ppcg_multi_val_from_int(isl_space_copy(space), scop->options->tile_size);
+	sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
 
 	node = tile(node, sizes);
 	if (!node)
@@ -966,8 +966,9 @@ static __isl_give isl_schedule_node *tile_band(
 
 		isl_schedule_node *rescheduled;
 
-		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
 		rescheduled = reschedule_tile_loops(isl_schedule_node_copy(node), scop);
+		space = isl_schedule_node_band_get_space(rescheduled);
+		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
 		rescheduled = tile(rescheduled, sizes);
 
 		isl_schedule_node *rescheduled_point_loop_node =
