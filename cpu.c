@@ -566,6 +566,170 @@ static __isl_give isl_schedule_node *tile(__isl_take isl_schedule_node *node,
 	return node;
 }
 
+struct filter_carried_dependences_data {
+	isl_union_map *schedule;
+	isl_union_map *result;
+};
+
+/* Carrying check: if all points in the scheduled dependence map domain are
+ * lexicograhically strictly less than their range counterparts, the
+ * dependence is carried (or strictly satisfied) by the given schedule.
+ * In practice, we check if an intersection of the scheduled dependence map
+ * with a less-than map is equal to the schedule depdendence map.
+ */
+static isl_stat filter_out_carried_dependences_one(__isl_take isl_map *dependence,
+	void *user)
+{
+	struct filter_carried_dependences_data *data = user;
+	isl_map *dep = isl_map_copy(dependence);
+	isl_map *comparison;
+	isl_union_map *udep = isl_union_map_from_map(dep);
+	isl_space *space;
+	isl_bool carried;
+
+	udep = isl_union_map_apply_domain(udep,
+		isl_union_map_copy(data->schedule));
+	udep = isl_union_map_apply_range(udep,
+		isl_union_map_copy(data->schedule));
+	if (isl_union_map_is_empty(udep)) {
+		isl_union_map_free(udep);
+		isl_map_free(dependence);
+		return isl_stat_ok;
+	}
+	dep = isl_map_from_union_map(udep);
+
+	space = isl_map_get_space(dep);
+	space = isl_space_domain(space);
+	comparison = isl_map_lex_lt(space);
+	comparison = isl_map_intersect(isl_map_copy(dep), comparison);
+	carried = isl_map_is_equal(dep, comparison);
+	isl_map_free(dep);
+	isl_map_free(comparison);
+
+	if (carried < 0) {
+		isl_map_free(dependence);
+		return isl_stat_error;
+	}
+
+	if (carried == isl_bool_true)
+		data->result = isl_union_map_add_map(data->result, dependence);
+	else
+		isl_map_free(dependence);
+
+	return isl_stat_ok;
+}
+
+/* Keep only those dependence maps from the union "dependences" that are
+ * not carried (strictly satisfied) by the given "schedule".
+ */
+static __isl_give isl_union_map *filter_out_carried_dependences(
+	__isl_take isl_union_map *dependences, __isl_keep isl_union_map *schedule)
+{
+	isl_space *space = isl_union_map_get_space(dependences);
+	isl_union_map *result = isl_union_map_empty(space);
+	struct filter_carried_dependences_data data = { schedule, result };
+	isl_stat r = isl_union_map_foreach_map(dependences,
+		&filter_out_carried_dependences_one, &data);
+	isl_union_map_free(dependences);
+	if (r == isl_stat_error)
+		return isl_union_map_free(data.result);
+	return data.result;
+}
+
+static __isl_give isl_union_map *bandwise_dependences(
+	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+{
+	isl_schedule_node **band_nodes;
+	int n_band_nodes = 1;
+	isl_ctx *ctx;
+	int i;
+	isl_union_map *validity;
+	isl_union_map *schedule, *partial_schedule;
+	isl_space *space;
+
+	if (!node || isl_schedule_node_get_type(node) != isl_schedule_node_band)
+		return NULL;
+
+	// FIXME: account for live-range reodering here
+	validity = isl_union_map_copy(scop->dep_flow);
+	validity = isl_union_map_union(validity,
+		isl_union_map_copy(scop->dep_false));
+
+	ctx = isl_schedule_node_get_ctx(node);
+
+	band_nodes = isl_alloc_array(ctx, isl_schedule_node *, 1);
+	band_nodes[0] = isl_schedule_node_copy(node);
+
+	// Find all bands from root to "node", in inverse order.
+	while (isl_schedule_node_has_parent(node)) {
+		node = isl_schedule_node_parent(node);
+		if (isl_schedule_node_get_type(node) != isl_schedule_node_band)
+			continue;
+		++n_band_nodes;
+		band_nodes = isl_realloc_array(ctx, band_nodes, isl_schedule_node *,
+			n_band_nodes);
+		band_nodes[n_band_nodes - 1] = isl_schedule_node_copy(node);
+	}
+	isl_schedule_node_free(node);
+
+	// Filter out validity dependences that are satisfied by outer bands.
+	// Construct schedule from partials (FIXME: not sure we need this)
+	space = isl_union_set_get_space(scop->domain);
+	space = isl_space_set_from_params(space);
+	schedule = isl_union_map_from_domain_and_range(
+		isl_union_set_copy(scop->domain),
+		isl_union_set_from_set(isl_set_universe(space)));
+
+	space = isl_union_set_get_space(scop->domain);
+	int n_scheduled_dims = 0;
+
+	for (i = n_band_nodes - 1; i >= 0; --i) {
+		int n_partial_dims;
+		isl_set *schedule_range;
+		isl_space *schedule_space;
+		isl_map *extension;
+
+		node = band_nodes[i];
+		partial_schedule =
+			isl_schedule_node_band_get_partial_schedule_union_map(node);
+
+		schedule_range = isl_set_from_union_set(isl_union_map_range(
+			isl_union_map_copy(partial_schedule)));
+		n_partial_dims = isl_set_n_dim(schedule_range);
+		schedule_space = isl_set_get_space(schedule_range);
+		schedule_space = isl_space_map_from_domain_and_range(schedule_space,
+			isl_space_copy(schedule_space));
+		isl_set_free(schedule_range);
+
+		extension = isl_map_identity(schedule_space);
+		extension = isl_map_insert_dims(extension, isl_dim_out,
+			0, n_scheduled_dims);
+		partial_schedule = isl_union_map_apply_range(partial_schedule,
+			isl_union_map_from_map(extension));
+
+		schedule_space = isl_space_copy(space);
+		schedule_space = isl_space_add_dims(schedule_space, isl_dim_in,
+			n_scheduled_dims);
+		schedule_space = isl_space_add_dims(schedule_space, isl_dim_out,
+			n_scheduled_dims);
+		extension = isl_map_identity(schedule_space);
+		extension = isl_map_add_dims(extension, isl_dim_out, n_partial_dims);
+		schedule = isl_union_map_apply_range(schedule,
+			isl_union_map_from_map(extension));
+
+		schedule = isl_union_map_intersect(schedule, partial_schedule);
+		n_scheduled_dims += n_partial_dims;
+
+		// Dependences that are strongly satisfied by current schedule.
+		validity = filter_out_carried_dependences(validity, schedule);
+		isl_schedule_node_free(node);
+	}
+	isl_space_free(space);
+	isl_union_map_free(schedule);
+
+	return validity;
+}
+
 /* Pull parallel loops to the start of a band node "node".
  * Leave untouched non-permutable band nodes.
  *
