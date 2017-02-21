@@ -931,7 +931,7 @@ static __isl_give isl_schedule_node *tile_band(
 	if (!node)
 		return node;
 
-	if (scop->options->tile_maximize_outer_coincidence) {
+	if (scop->options->tile_spatial == PPCG_TILE_SPATIAL_FIRST) {
 		// Reschedule tile loops using a different policy.  Then substitute
 		// current tile loop schedule with the newly computed one while
 		// keeping point loops and their children intact.
@@ -993,6 +993,9 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 {
 	isl_schedule_constraints *sc;
 	isl_union_map *validity, *coincidence, *proximity;
+	int use_coincidence = ps->options->openmp && (!ps->options->tile ||
+		(ps->options->tile &&
+		 ps->options->tile_spatial != PPCG_TILE_SPATIAL_FIRST));
 
 	sc = isl_schedule_constraints_on_domain(isl_union_set_copy(ps->domain));
 	if (ps->options->live_range_reordering) {
@@ -1002,7 +1005,7 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 		validity = isl_union_map_copy(ps->dep_flow);
 		validity = isl_union_map_union(validity,
 				isl_union_map_copy(ps->dep_forced));
-		if (ps->options->openmp) {
+		if (use_coincidence) {
 			coincidence = isl_union_map_copy(validity);
 			coincidence = isl_union_map_union(coincidence,
 					isl_union_map_copy(ps->dep_order));
@@ -1011,10 +1014,10 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 		validity = isl_union_map_copy(ps->dep_flow);
 		validity = isl_union_map_union(validity,
 				isl_union_map_copy(ps->dep_false));
-		if (ps->options->openmp)
+		if (use_coincidence)
 			coincidence = isl_union_map_copy(validity);
 	}
-	if (ps->options->openmp)
+	if (use_coincidence)
 		sc = isl_schedule_constraints_set_coincidence(sc, coincidence);
 	sc = isl_schedule_constraints_set_validity(sc, validity);
 

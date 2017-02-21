@@ -17,6 +17,13 @@ static struct isl_arg_choice target[] = {
 	{0}
 };
 
+static struct isl_arg_choice ppcg_tile_spatial_choice[] = {
+	{"same",	PPCG_TILE_SPATIAL_SAME},
+	{"first",	PPCG_TILE_SPATIAL_FIRST},
+	{"last",	PPCG_TILE_SPATIAL_LAST},
+	{0}
+};
+
 struct isl_arg_choice ppcg_spatial_model_choice[] = {
 	{"none",	PPCG_SPATIAL_MODEL_NONE},
 	{"groups",	PPCG_SPATIAL_MODEL_GROUPS},
@@ -123,9 +130,10 @@ ISL_ARG_BOOL(struct ppcg_options, non_negative_parameters, 0,
 ISL_ARG_BOOL(struct ppcg_options, tile, 0, "tile", 0,
 	"perform tiling (C target)")
 ISL_ARG_INT(struct ppcg_options, tile_size, 'S', "tile-size", "size", 32, NULL)
-ISL_ARG_BOOL(struct ppcg_options, tile_maximize_outer_coincidence, 0,
-	"tile-maximize-outer-coincidence", 0,
-	"Interchange tile loops to maximize outer coincidence within each band")
+ISL_ARG_CHOICE(struct ppcg_options, tile_spatial, 0, "tile-spatial",
+	ppcg_tile_spatial_choice, PPCG_TILE_SPATIAL_SAME,
+	"apply spatial scheduling before tiling, after tiling or use the same "
+	"schedule approach")
 ISL_ARG_STR(struct ppcg_options, sizes, 0, "sizes", "sizes", NULL,
 	"Per kernel tile, grid and block sizes")
 ISL_ARG_INT(struct ppcg_options, max_shared_memory, 0,
