@@ -979,14 +979,12 @@ static __isl_give isl_schedule_node *tile_band(
 		rescheduled = isl_schedule_node_parent(rescheduled_point_loop_node);
 
 		node = isl_schedule_node_replace_tree(node, rescheduled);
-
-		// node = hoist_parallel_loops(node, scop);
 	} else if (scop->options->tile_spatial == PPCG_TILE_SPATIAL_LAST) {
-
 		isl_schedule_node *rescheduled;
 
-		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
 		rescheduled = reschedule_point_loops(isl_schedule_node_copy(node), scop);
+		space = isl_schedule_node_band_get_space(rescheduled);
+		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
 		rescheduled = tile(rescheduled, sizes);
 
 		rescheduled = isl_schedule_node_first_child(rescheduled);
