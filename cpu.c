@@ -819,6 +819,7 @@ static __isl_give isl_union_set *bandwise_domain(
 	if (isl_schedule_node_get_type(node) != isl_schedule_node_band)
 		return NULL;
 
+	// this should give only the dimension up to the end of current node (i.e. not including e.g. the point loop dimensions that were created during tiling)
 	band_domain = isl_schedule_node_get_universe_domain(node);
 	band_domain = isl_union_set_intersect(band_domain,
 		isl_union_set_copy(scop->domain));
@@ -854,7 +855,7 @@ static __isl_give isl_schedule_constraints *proximity_validity_constraints(
 static __isl_give isl_schedule_node *reschedule_whole_component(
 	__isl_take isl_schedule_constraints *constraints)
 {
-	int orig_schedule_whole_component;
+	int orig_schedule_whole_component, orig_schedule_outer_coincidence;
 	isl_schedule *schedule;
 	isl_schedule_node *rescheduled_node;
 	isl_ctx *ctx = isl_schedule_constraints_get_ctx(constraints);
@@ -862,6 +863,9 @@ static __isl_give isl_schedule_node *reschedule_whole_component(
 	orig_schedule_whole_component =
 		isl_options_get_schedule_whole_component(ctx);
 	isl_options_set_schedule_whole_component(ctx, 1);
+	orig_schedule_outer_coincidence =
+		isl_options_get_schedule_outer_coincidence(ctx);
+	isl_options_set_schedule_outer_coincidence(ctx, 0);
 
 	// This schedule MUST have only one band, traverse the tree until we find
 	// first band.  Continue traversal to ensure it is the only one.
@@ -869,6 +873,8 @@ static __isl_give isl_schedule_node *reschedule_whole_component(
 	rescheduled_node = schedule_get_single_node_band(schedule);
 	isl_options_set_schedule_whole_component(ctx,
 		orig_schedule_whole_component);
+	isl_options_set_schedule_outer_coincidence(ctx,
+		orig_schedule_outer_coincidence);
 	return rescheduled_node;
 }
 
