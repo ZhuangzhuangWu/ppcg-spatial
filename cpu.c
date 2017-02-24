@@ -885,7 +885,8 @@ static __isl_give isl_schedule_node *reschedule_tile_loops(
 	isl_union_set *band_domain;
 	isl_schedule_constraints *constraints;
 
-	constraints = proximity_validity_constraints(node, scop);
+	constraints = proximity_validity_constraints(
+		isl_schedule_node_copy(node), scop);
 	band_domain = isl_schedule_constraints_get_domain(constraints);
 
 	coincidence = isl_union_map_union(isl_union_map_copy(scop->dep_flow),
@@ -896,7 +897,9 @@ static __isl_give isl_schedule_node *reschedule_tile_loops(
 	constraints = isl_schedule_constraints_set_coincidence(constraints,
 		coincidence);
 
-	return reschedule_whole_component(constraints);
+	return isl_schedule_constraints_recompute_schedule(constraints, node);
+
+	// return reschedule_whole_component(constraints);
 }
 
 static __isl_give isl_schedule_node *reschedule_point_loops(
@@ -907,7 +910,8 @@ static __isl_give isl_schedule_node *reschedule_point_loops(
 	isl_union_set *band_domain, *access_set;
 	isl_union_map *access_map, *counted_accesses;
 
-	constraints = proximity_validity_constraints(node, scop);
+	constraints = proximity_validity_constraints(
+		isl_schedule_node_copy(node), scop);
 	band_domain = isl_schedule_constraints_get_domain(constraints);
 	// TODO: spatial proximity is computed always, but may be done on per-tile level
 	// not sure whether it is faster or not (many small computations or one large)
@@ -934,7 +938,9 @@ static __isl_give isl_schedule_node *reschedule_point_loops(
 	constraints = isl_schedule_constraints_set_counted_accesses(constraints,
 		counted_accesses);
 
-	return reschedule_whole_component(constraints);
+	return isl_schedule_constraints_recompute_schedule(constraints, node);
+
+	// return reschedule_whole_component(constraints);
 }
 
 /* Tile "node", if it is a band node with at least 2 members.
@@ -960,11 +966,6 @@ static __isl_give isl_schedule_node *tile_band(
 
 	space = isl_schedule_node_band_get_space(node);
 	sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
-
-	node = tile(node, sizes);
-	if (!node)
-		return node;
-
 	if (scop->options->tile_spatial == PPCG_TILE_SPATIAL_FIRST) {
 		// Reschedule tile loops using a different policy.  Then substitute
 		// current tile loop schedule with the newly computed one while
@@ -973,6 +974,11 @@ static __isl_give isl_schedule_node *tile_band(
 		isl_schedule_node *rescheduled;
 
 		rescheduled = reschedule_tile_loops(isl_schedule_node_copy(node), scop);
+		if (!rescheduled)
+			isl_die(isl_schedule_node_get_ctx(node), isl_error_internal,
+				"Could not reschedule tile loop band", return node);
+		node = tile(node, sizes);
+
 		space = isl_schedule_node_band_get_space(rescheduled);
 		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
 		rescheduled = tile(rescheduled, sizes);
@@ -989,6 +995,14 @@ static __isl_give isl_schedule_node *tile_band(
 		isl_schedule_node *rescheduled;
 
 		rescheduled = reschedule_point_loops(isl_schedule_node_copy(node), scop);
+		if (!rescheduled)
+			isl_die(isl_schedule_node_get_ctx(node), isl_error_internal,
+				"Could not reschedule point loop band", return node);
+		node = tile(node, sizes);
+
+		// isl_schedule_node_dump(node);
+		// isl_schedule_node_dump(rescheduled);
+
 		space = isl_schedule_node_band_get_space(rescheduled);
 		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
 		rescheduled = tile(rescheduled, sizes);
@@ -997,6 +1011,8 @@ static __isl_give isl_schedule_node *tile_band(
 		node = isl_schedule_node_first_child(node);
 		node = isl_schedule_node_replace_tree(node, rescheduled);
 		node = isl_schedule_node_parent(node);
+	} else {
+		node = tile(node, sizes);
 	}
 
 	return node;
