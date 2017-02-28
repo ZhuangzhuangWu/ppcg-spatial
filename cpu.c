@@ -611,7 +611,7 @@ static isl_stat filter_out_carried_dependences_one(__isl_take isl_map *dependenc
 		return isl_stat_error;
 	}
 
-	if (carried == isl_bool_true)
+	if (carried == isl_bool_false)
 		data->result = isl_union_map_add_map(data->result, dependence);
 	else
 		isl_map_free(dependence);
@@ -673,7 +673,9 @@ static __isl_give isl_union_map *bandwise_dependences(
 	isl_schedule_node_free(node);
 
 	// Filter out validity dependences that are satisfied by outer bands.
-	// Construct schedule from partials (FIXME: not sure we need this)
+	// Construct schedule from partials in progress.
+	// Do not take into account the current band (the dependences it carries
+	// must be included in the result).
 	space = isl_union_set_get_space(scop->domain);
 	space = isl_space_set_from_params(space);
 	schedule = isl_union_map_from_domain_and_range(
@@ -681,44 +683,13 @@ static __isl_give isl_union_map *bandwise_dependences(
 		isl_union_set_from_set(isl_set_universe(space)));
 
 	space = isl_union_set_get_space(scop->domain);
-	int n_scheduled_dims = 0;
 
-	for (i = n_band_nodes - 1; i >= 0; --i) {
-		int n_partial_dims;
-		isl_set *schedule_range;
-		isl_space *schedule_space;
-		isl_map *extension;
-
+	for (i = n_band_nodes - 1; i > 0; --i) {
 		node = band_nodes[i];
 		partial_schedule =
 			isl_schedule_node_band_get_partial_schedule_union_map(node);
-
-		schedule_range = isl_set_from_union_set(isl_union_map_range(
-			isl_union_map_copy(partial_schedule)));
-		n_partial_dims = isl_set_n_dim(schedule_range);
-		schedule_space = isl_set_get_space(schedule_range);
-		schedule_space = isl_space_map_from_domain_and_range(schedule_space,
-			isl_space_copy(schedule_space));
-		isl_set_free(schedule_range);
-
-		extension = isl_map_identity(schedule_space);
-		extension = isl_map_insert_dims(extension, isl_dim_out,
-			0, n_scheduled_dims);
-		partial_schedule = isl_union_map_apply_range(partial_schedule,
-			isl_union_map_from_map(extension));
-
-		schedule_space = isl_space_copy(space);
-		schedule_space = isl_space_add_dims(schedule_space, isl_dim_in,
-			n_scheduled_dims);
-		schedule_space = isl_space_add_dims(schedule_space, isl_dim_out,
-			n_scheduled_dims);
-		extension = isl_map_identity(schedule_space);
-		extension = isl_map_add_dims(extension, isl_dim_out, n_partial_dims);
-		schedule = isl_union_map_apply_range(schedule,
-			isl_union_map_from_map(extension));
-
-		schedule = isl_union_map_intersect(schedule, partial_schedule);
-		n_scheduled_dims += n_partial_dims;
+		schedule =
+			isl_union_map_flat_range_product(schedule, partial_schedule);
 
 		// Dependences that are strongly satisfied by current schedule.
 		validity = filter_out_carried_dependences(validity, schedule);
