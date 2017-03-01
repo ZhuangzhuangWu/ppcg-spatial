@@ -914,6 +914,76 @@ static __isl_give isl_schedule_node *reschedule_point_loops(
 	// return reschedule_whole_component(constraints);
 }
 
+isl_stat max_out_dim_map(__isl_take isl_map *map, void *user)
+{
+	int *max_dim = user;
+	int dim = isl_map_dim(map, isl_dim_out);
+	isl_map_free(map);
+	if (dim > *max_dim)
+		*max_dim = dim;
+	return isl_stat_ok;
+}
+
+int max_out_dim(__isl_keep isl_union_map *umap)
+{
+	int max_dim = 0;
+	if (isl_union_map_foreach_map(umap, &max_out_dim_map, &max_dim) < 0)
+		return -1;
+	return max_dim;
+}
+
+struct extend_map_data {
+	isl_union_map *result;
+	int max_dim;
+};
+
+isl_stat extend_map(__isl_take isl_map *map, void *user)
+{
+	struct extend_map_data *data = user;
+	int dim = isl_map_dim(map, isl_dim_out);
+	if (dim < data->max_dim)
+		map = isl_map_insert_dims(map, isl_dim_out, dim, data->max_dim - dim);
+	data->result = isl_union_map_add_map(data->result, map);
+	return isl_stat_ok;
+}
+
+__isl_give isl_union_map *extend_to_max_dim(__isl_take isl_union_map *umap)
+{
+	isl_space *space = isl_union_map_get_space(umap);
+	int max_dim = max_out_dim(umap);
+	struct extend_map_data data = { isl_union_map_empty(space), max_dim };
+	if (isl_union_map_foreach_map(umap, &extend_map, &data) < 0)
+		data.result = isl_union_map_free(data.result);
+	isl_union_map_free(umap);
+	return data.result;
+}
+
+int check_validity(isl_schedule_node *node, struct ppcg_scop *scop)
+{
+	fprintf(stderr, "starting validity check\n");
+	isl_schedule *sch = isl_schedule_node_get_schedule(node);
+	isl_band_list *blist = isl_schedule_get_band_forest(isl_schedule_cow(sch));
+
+	isl_union_map *validity = isl_union_map_copy(scop->dep_flow);
+	isl_union_map *usch = isl_band_list_get_suffix_schedule(blist);
+	usch = extend_to_max_dim(usch);
+
+	isl_map *scheduled_validity;
+	isl_space *schedule_space;
+	isl_bool empty;
+
+	validity = isl_union_map_apply_domain(validity, isl_union_map_copy(usch));
+	validity = isl_union_map_apply_range(validity, usch);
+	scheduled_validity = isl_map_from_union_map(validity);
+	schedule_space = isl_map_get_space(scheduled_validity);
+	schedule_space = isl_space_domain(schedule_space);
+	scheduled_validity = isl_map_intersect(scheduled_validity,
+		isl_map_lex_gt(schedule_space));
+	empty = isl_map_is_empty(scheduled_validity);
+	isl_map_free(scheduled_validity);
+	return empty == isl_bool_true;
+}
+
 /* Tile "node", if it is a band node with at least 2 members.
  * The tile sizes are set from the "tile_size" option.
  * Splits node into two bands: tile loops and point loops.
@@ -927,6 +997,7 @@ static __isl_give isl_schedule_node *tile_band(
 	int n;
 	isl_space *space;
 	isl_multi_val *sizes;
+	int use_same = scop->options->tile_spatial == PPCG_TILE_SPATIAL_SAME;
 
 	if (isl_schedule_node_get_type(node) != isl_schedule_node_band)
 		return node;
@@ -943,12 +1014,15 @@ static __isl_give isl_schedule_node *tile_band(
 		// keeping point loops and their children intact.
 
 		isl_schedule_node *rescheduled;
+		isl_schedule_node *node_snap;
 
 		rescheduled = reschedule_tile_loops(isl_schedule_node_copy(node), scop);
 		if (!rescheduled)
 			isl_die(isl_schedule_node_get_ctx(node), isl_error_internal,
 				"Could not reschedule tile loop band", return node);
 		node = tile(node, sizes);
+		node_snap = node;
+		node = isl_schedule_node_cow(isl_schedule_node_copy(node));
 
 		space = isl_schedule_node_band_get_space(rescheduled);
 		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
@@ -962,17 +1036,26 @@ static __isl_give isl_schedule_node *tile_band(
 		rescheduled = isl_schedule_node_parent(rescheduled_point_loop_node);
 
 		node = isl_schedule_node_replace_tree(node, rescheduled);
+
+		if (!check_validity(node, scop)) {
+			isl_die(isl_schedule_node_get_ctx(node), isl_error_internal,
+				"Defaulting to same-schedule tiling", use_same = 1);
+			isl_schedule_node_free(node);
+			node = node_snap;
+		} else {
+			isl_schedule_node_free(node_snap);
+		}
 	} else if (scop->options->tile_spatial == PPCG_TILE_SPATIAL_LAST) {
 		isl_schedule_node *rescheduled;
+		isl_schedule_node *node_snap;
 
 		rescheduled = reschedule_point_loops(isl_schedule_node_copy(node), scop);
 		if (!rescheduled)
 			isl_die(isl_schedule_node_get_ctx(node), isl_error_internal,
 				"Could not reschedule point loop band", return node);
 		node = tile(node, sizes);
-
-		// isl_schedule_node_dump(node);
-		// isl_schedule_node_dump(rescheduled);
+		node_snap = node;
+		node = isl_schedule_node_cow(isl_schedule_node_copy(node));
 
 		space = isl_schedule_node_band_get_space(rescheduled);
 		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
@@ -982,6 +1065,15 @@ static __isl_give isl_schedule_node *tile_band(
 		node = isl_schedule_node_first_child(node);
 		node = isl_schedule_node_replace_tree(node, rescheduled);
 		node = isl_schedule_node_parent(node);
+
+		if (!check_validity(node, scop)) {
+			isl_die(isl_schedule_node_get_ctx(node), isl_error_internal,
+				"Defaulting to same-schedule tiling", use_same = 1);
+			isl_schedule_node_free(node);
+			node = node_snap;
+		} else {
+			isl_schedule_node_free(node_snap);
+		}
 	} else {
 		node = tile(node, sizes);
 	}
