@@ -22,6 +22,7 @@
 #include <isl/ast_build.h>
 #include <isl/schedule.h>
 #include <isl/schedule_node.h>
+#include <isl/constraint.h>
 #include <pet.h>
 
 #include "ppcg.h"
@@ -636,8 +637,29 @@ static __isl_give isl_union_map *filter_out_carried_dependences(
 	return data.result;
 }
 
+static isl_stat replicate_tag_one(__isl_take isl_map *map, void *user)
+{
+	isl_union_map **result = user;
+	isl_id *id = isl_map_get_tuple_id(map, isl_dim_in);
+	map = isl_map_set_tuple_id(map, isl_dim_out, id);
+	*result = isl_union_map_add_map(*result, map);
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *replicate_tag(__isl_take isl_union_map *umap)
+{
+	isl_space *space = isl_union_map_get_space(umap);
+	isl_union_map *result = isl_union_map_empty(space);
+	isl_stat r = isl_union_map_foreach_map(umap, &replicate_tag_one, &result);
+	isl_union_map_free(umap);
+	if (r == isl_stat_error)
+			result = isl_union_map_free(result);
+	return result;
+}
+
 static __isl_give isl_union_map *bandwise_dependences(
-	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+	__isl_take isl_schedule_node *node,
+	__isl_keep isl_union_set *domain, struct ppcg_scop *scop)
 {
 	isl_schedule_node **band_nodes;
 	int n_band_nodes = 1;
@@ -684,7 +706,13 @@ static __isl_give isl_union_map *bandwise_dependences(
 
 	space = isl_union_set_get_space(scop->domain);
 
-	for (i = n_band_nodes - 1; i > 0; --i) {
+	// Only keep those dependences that are relevant for the tile domain
+	// validity = isl_union_map_intersect_domain(validity,
+	// 	isl_union_set_copy(domain));
+	// validity = isl_union_map_intersect_domain(validity,
+	// 	isl_union_set_copy(domain));
+
+	for (i = n_band_nodes - 1; i >= 0; --i) {
 		node = band_nodes[i];
 		partial_schedule =
 			isl_schedule_node_band_get_partial_schedule_union_map(node);
@@ -692,9 +720,16 @@ static __isl_give isl_union_map *bandwise_dependences(
 			isl_union_map_flat_range_product(schedule, partial_schedule);
 
 		// Dependences that are strongly satisfied by current schedule.
-		validity = filter_out_carried_dependences(validity, schedule);
+		if (i != 0)
+			validity = filter_out_carried_dependences(validity, schedule);
 		isl_schedule_node_free(node);
 	}
+	schedule = replicate_tag(schedule);
+	validity = isl_union_map_apply_domain(validity,
+		isl_union_map_copy(schedule));
+	validity = isl_union_map_apply_range(validity,
+		isl_union_map_copy(schedule));
+
 	isl_space_free(space);
 	isl_union_map_free(schedule);
 
@@ -782,6 +817,173 @@ error:
 	return NULL;
 }
 
+static inline __isl_give isl_set *fix_set_dims_as_params(
+	__isl_take isl_set *bset, int n_out)
+{
+	int n_param, i;
+	isl_local_space *local_space;
+	isl_constraint *constraint;
+	isl_space *space;
+
+	bset = isl_set_add_dims(bset, isl_dim_param, n_out);
+	n_param = isl_set_n_param(bset);
+	for (i = 0; i < n_out; i++) {
+		space = isl_set_get_space(bset);
+		local_space = isl_local_space_from_space(space);
+		constraint = isl_constraint_alloc_equality(local_space);
+		constraint = isl_constraint_set_coefficient_si(constraint,
+			isl_dim_set, i, -1);
+		constraint = isl_constraint_set_coefficient_si(constraint,
+			isl_dim_param, n_param - n_out + i, 1);
+		bset = isl_set_add_constraint(bset, constraint);
+
+		char name[10];
+		snprintf(name, 10, "ppcgp%d", i);
+		bset = isl_set_set_dim_name(bset, isl_dim_param,
+			n_param - n_out + i, name);
+	}
+	return bset;
+}
+
+static __isl_give isl_map *fix_map_dims_as_params(
+	__isl_take isl_map *map, int n_out)
+{
+	int n_param, i;
+	isl_local_space *local_space;
+	isl_constraint *constraint;
+	isl_space *space;
+
+	map = isl_map_add_dims(map, isl_dim_param, n_out);
+	n_param = isl_map_n_param(map);
+	for (i = 0; i < n_out; i++) {
+		space = isl_map_get_space(map);
+		local_space = isl_local_space_from_space(space);
+		constraint = isl_constraint_alloc_equality(local_space);
+		constraint = isl_constraint_set_coefficient_si(constraint,
+			isl_dim_out, i, -1);
+		constraint = isl_constraint_set_coefficient_si(constraint,
+			isl_dim_param, n_param - n_out + i, 1);
+		map = isl_map_add_constraint(map, constraint);
+
+		char name[10];
+		snprintf(name, 10, "ppcgp%d", i);
+		map = isl_map_set_dim_name(map, isl_dim_param,
+			n_param - n_out + i, name);
+	}
+	return map;
+}
+
+struct fix_umap_dims_data {
+	isl_union_map *result;
+	int n_out;
+	int keep;
+	int equal_id;
+};
+
+static isl_stat fix_umap_dims_one(__isl_take isl_map *map, void *user)
+{
+	struct fix_umap_dims_data *data = user;
+	if (data->n_out != 0) {
+		map = fix_map_dims_as_params(map, data->n_out);
+		if (!data->keep)
+			map = isl_map_project_out(map, isl_dim_out, 0, data->n_out);
+	}
+	if (data->equal_id)
+		map = isl_map_set_tuple_id(map, isl_dim_out,
+			isl_map_get_tuple_id(map, isl_dim_in));
+
+	data->result = isl_union_map_add_map(data->result, map);
+	return data->result ? isl_stat_ok : isl_stat_error;
+}
+
+static __isl_give isl_union_map *fix_union_map_dims_as_params(
+	__isl_take isl_union_map *umap, int n_out, int keep, int equal_id)
+{
+	isl_space *space = isl_union_map_get_space(umap);
+	struct fix_umap_dims_data data = { isl_union_map_empty(space), n_out,
+		keep, equal_id };
+	if (isl_union_map_foreach_map(umap, &fix_umap_dims_one, &data) < 0)
+		isl_union_map_free(data.result);
+	return data.result;
+}
+
+static isl_stat reset_ids(__isl_take isl_map *map, void *user)
+{
+	isl_union_map **result = user;
+	if (!result)
+		return isl_stat_error;
+
+	map = isl_map_reset_tuple_id(map, isl_dim_in);
+	map = isl_map_reset_tuple_id(map, isl_dim_out);
+	*result = isl_union_map_add_map(*result, map);
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *union_map_reset_ids(
+	__isl_take isl_union_map *umap)
+{
+	isl_space *space = isl_union_map_get_space(umap);
+	isl_union_map *result = isl_union_map_empty(space);
+	if (isl_union_map_foreach_map(umap, &reset_ids, &result) < 0)
+		result = isl_union_map_free(result);
+	isl_union_map_free(umap);
+	return result;
+}
+
+struct umap_project_out_data {
+	isl_union_map *result;
+	int n_dim;
+};
+
+static isl_stat map_project_out_one(__isl_take isl_map *map, void *user)
+{
+	struct umap_project_out_data *data = user;
+	map = isl_map_project_out(map, isl_dim_out, 0, data->n_dim);
+	data->result = isl_union_map_add_map(data->result, map);
+	if (!data->result)
+		return isl_stat_error;
+	return isl_stat_ok;
+}
+
+static __isl_give isl_union_map *union_map_project_out_out_dims(
+	__isl_take isl_union_map *umap, int n_dim)
+{
+	isl_space *space = isl_union_map_get_space(umap);
+	struct umap_project_out_data data = { isl_union_map_empty(space), n_dim };
+	if (isl_union_map_foreach_map(umap, &map_project_out_one, &data) < 0)
+		data.result = isl_union_map_free(data.result);
+	isl_union_map_free(umap);
+	return data.result;
+}
+
+// point_node = point-loop from rescheduled
+// tile_node = tile-loop from original
+static __isl_give isl_schedule_node *remove_tile_parameters(
+	__isl_take isl_schedule_node *point_node,
+	__isl_keep isl_schedule_node *tile_node)
+{
+	isl_union_map *tile_schedule =
+		isl_schedule_node_band_get_partial_schedule_union_map(tile_node);
+	isl_union_map *point_schedule =
+		isl_schedule_node_band_get_partial_schedule_union_map(point_node);
+	// isl_union_set *domain =
+	// 	isl_schedule_node_get_domain(tile_node);
+
+	// tile_schedule = isl_union_map_intersect_domain(tile_schedule, domain);
+	tile_schedule = fix_union_map_dims_as_params(tile_schedule, 3, 1, 1);
+
+	point_schedule = isl_union_map_flat_range_product(tile_schedule,
+		point_schedule);
+	point_schedule = isl_union_map_project_out(point_schedule, isl_dim_param,
+		isl_union_map_dim(point_schedule, isl_dim_param) - 3, 3);
+	point_schedule = union_map_project_out_out_dims(point_schedule, 3);
+
+	point_node = isl_schedule_node_band_reset_schedule(point_node,
+		isl_multi_union_pw_aff_from_union_map(point_schedule));
+	return point_node;
+}
+
+
 static __isl_give isl_union_set *bandwise_domain(
 	__isl_keep isl_schedule_node *node, struct ppcg_scop *scop)
 {
@@ -791,22 +993,77 @@ static __isl_give isl_union_set *bandwise_domain(
 		return NULL;
 
 	// this should give only the dimension up to the end of current node (i.e. not including e.g. the point loop dimensions that were created during tiling)
-	band_domain = isl_schedule_node_get_universe_domain(node);
-	band_domain = isl_union_set_intersect(band_domain,
-		isl_union_set_copy(scop->domain));
+	// band_domain = isl_schedule_node_get_universe_domain(node);
+	// band_domain = isl_union_set_intersect(band_domain,
+	// 	isl_union_set_copy(scop->domain));
+
+// #if 0
+		isl_schedule_node *point_loop = isl_schedule_node_copy(node);
+		isl_union_set *dom = isl_schedule_node_get_domain(point_loop);
+		isl_union_map *umap1 =
+			isl_schedule_node_band_get_partial_schedule_union_map(point_loop);
+		// point_loop = isl_schedule_node_first_child(point_loop);
+		// isl_union_map *umap2 =
+		// 	isl_schedule_node_band_get_partial_schedule_union_map(point_loop);
+		// isl_union_map *sched = isl_union_map_flat_range_product(umap1, umap2);
+		isl_union_map *sched = umap1;
+
+
+		dom = isl_union_set_apply(dom, isl_union_map_copy(sched));
+		isl_set *dom_set = isl_set_from_union_set(dom);
+		dom_set = fix_set_dims_as_params(dom_set, 3);
+		dom = isl_union_set_from_set(dom_set);
+		// dom = isl_union_set_apply(dom, isl_union_map_reverse(sched));
+		dom = isl_union_set_preimage_union_pw_multi_aff(dom,
+			isl_union_pw_multi_aff_from_union_map(sched));
+
+#if 0
+		sched = fix_union_map_dims_as_params(sched, 3, 0, 1);
+
+		dom = isl_union_set_apply(dom, isl_union_map_copy(sched));
+#endif
+
+#if 0
+		isl_union_pw_multi_aff *upma =
+			isl_union_pw_multi_aff_from_union_map(sched);
+		dom = isl_union_set_preimage_union_pw_multi_aff(dom, upma);
+#endif
+
+#if 0
+//v2
+		sched = replicate_tag(sched);
+		dom = isl_union_set_apply(dom, isl_union_map_copy(sched));
+		isl_set *dom_set = isl_set_from_union_set(dom);
+
+		dom_set = fix_set_dims_as_params(dom_set, 3);
+		isl_id *id = isl_set_get_tuple_id(dom_set);
+		dom_set = isl_set_project_out(dom_set, isl_dim_out, 0, 3);
+		dom_set = isl_set_set_tuple_id(dom_set, id);
+		dom = isl_union_set_from_set(dom_set);
+#endif
+
+		// isl_union_pw_multi_aff *upma = isl_union_pw_multi_aff_from_union_map(sched);
+		// dom = isl_union_set_preimage_union_pw_multi_aff(dom, upma);
+
+		fprintf(stderr, "[ppcg] domain: ");
+		isl_union_set_dump(dom);
+
+		band_domain = dom;
+// #endif
 
 	return band_domain;
 }
 
 static __isl_give isl_schedule_constraints *proximity_validity_constraints(
-	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+	__isl_take isl_schedule_node *node,
+	__isl_take isl_schedule_node *tiled_node, struct ppcg_scop *scop)
 {
 	isl_union_set *domain;
 	isl_union_map *validity, *proximity;
 	isl_schedule_constraints *constraints;
 
-	domain = bandwise_domain(node, scop);
-	validity = bandwise_dependences(node, scop);
+	domain = bandwise_domain(tiled_node, scop);
+	validity = bandwise_dependences(node, domain, scop);
 
 	proximity = isl_union_map_copy(scop->dep_flow);
 	proximity = isl_union_map_intersect_domain(proximity,
@@ -857,7 +1114,7 @@ static __isl_give isl_schedule_node *reschedule_tile_loops(
 	isl_schedule_constraints *constraints;
 
 	constraints = proximity_validity_constraints(
-		isl_schedule_node_copy(node), scop);
+		isl_schedule_node_copy(node), isl_schedule_node_copy(node), scop);
 	band_domain = isl_schedule_constraints_get_domain(constraints);
 
 	coincidence = isl_union_map_union(isl_union_map_copy(scop->dep_flow),
@@ -874,7 +1131,7 @@ static __isl_give isl_schedule_node *reschedule_tile_loops(
 }
 
 static __isl_give isl_schedule_node *reschedule_point_loops(
-	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+	__isl_take isl_schedule_node *node, __isl_take isl_schedule_node *tiled_node, struct ppcg_scop *scop)
 {
 	isl_schedule_constraints *constraints;
 	isl_union_map *spatial_proximity;
@@ -882,7 +1139,7 @@ static __isl_give isl_schedule_node *reschedule_point_loops(
 	isl_union_map *access_map, *counted_accesses;
 
 	constraints = proximity_validity_constraints(
-		isl_schedule_node_copy(node), scop);
+		isl_schedule_node_copy(node), tiled_node, scop);
 	band_domain = isl_schedule_constraints_get_domain(constraints);
 	// TODO: spatial proximity is computed always, but may be done on per-tile level
 	// not sure whether it is faster or not (many small computations or one large)
@@ -960,7 +1217,6 @@ __isl_give isl_union_map *extend_to_max_dim(__isl_take isl_union_map *umap)
 
 int check_validity(isl_schedule_node *node, struct ppcg_scop *scop)
 {
-	fprintf(stderr, "starting validity check\n");
 	isl_schedule *sch = isl_schedule_node_get_schedule(node);
 	isl_band_list *blist = isl_schedule_get_band_forest(isl_schedule_cow(sch));
 
@@ -981,6 +1237,7 @@ int check_validity(isl_schedule_node *node, struct ppcg_scop *scop)
 		isl_map_lex_gt(schedule_space));
 	empty = isl_map_is_empty(scheduled_validity);
 	isl_map_free(scheduled_validity);
+	fprintf(stderr, "validity check %d\n", empty);
 	return empty == isl_bool_true;
 }
 
@@ -1049,20 +1306,42 @@ static __isl_give isl_schedule_node *tile_band(
 		isl_schedule_node *rescheduled;
 		isl_schedule_node *node_snap;
 
-		rescheduled = reschedule_point_loops(isl_schedule_node_copy(node), scop);
+		rescheduled = isl_schedule_node_copy(node);
+		node = tile(node, sizes);
+		rescheduled = reschedule_point_loops(rescheduled,
+			isl_schedule_node_copy(node), scop);
 		if (!rescheduled)
 			isl_die(isl_schedule_node_get_ctx(node), isl_error_internal,
 				"Could not reschedule point loop band", return node);
-		node = tile(node, sizes);
+		// node = tile(node, sizes);
 		node_snap = node;
 		node = isl_schedule_node_cow(isl_schedule_node_copy(node));
 
 		space = isl_schedule_node_band_get_space(rescheduled);
 		sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
+
+		isl_union_map *sched =
+			isl_schedule_node_band_get_partial_schedule_union_map(rescheduled);
+		// fix all previous dimensions
+		sched = fix_union_map_dims_as_params(sched, 0, 0, 0);
+		isl_union_map *point_sched =
+			isl_schedule_node_band_get_partial_schedule_union_map(
+				isl_schedule_node_first_child(isl_schedule_node_copy(node)));
+		sched = union_map_reset_ids(sched);
+		point_sched = isl_union_map_apply_range(point_sched, sched);
+
+		isl_schedule_node_dump(rescheduled);
 		rescheduled = tile(rescheduled, sizes);
 
 		rescheduled = isl_schedule_node_first_child(rescheduled);
+
+		rescheduled = isl_schedule_node_band_reset_schedule(rescheduled,
+			isl_multi_union_pw_aff_from_union_map(point_sched));
+		rescheduled = remove_tile_parameters(rescheduled, node);
+
 		node = isl_schedule_node_first_child(node);
+
+
 		node = isl_schedule_node_replace_tree(node, rescheduled);
 		node = isl_schedule_node_parent(node);
 
