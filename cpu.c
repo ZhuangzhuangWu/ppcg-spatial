@@ -956,6 +956,30 @@ static __isl_give isl_union_map *union_map_project_out_out_dims(
 	return data.result;
 }
 
+static unsigned schedule_node_prefix_n_member(
+	__isl_keep isl_schedule_node *node)
+{
+	unsigned n_member = 0;
+	isl_schedule_node *nd = isl_schedule_node_copy(node);
+	if (!nd)
+		return 0;
+
+	while (isl_schedule_node_has_parent(nd) == isl_bool_true) {
+		nd = isl_schedule_node_parent(nd);
+		if (isl_schedule_node_get_type(nd) != isl_schedule_node_band)
+			continue;
+		n_member += isl_schedule_node_band_n_member(nd);
+	}
+	return n_member;
+}
+
+inline static unsigned schedule_node_total_n_member(
+	__isl_keep isl_schedule_node *node)
+{
+	return schedule_node_prefix_n_member(node) +
+		isl_schedule_node_band_n_member(node);
+}
+
 // point_node = point-loop from rescheduled
 // tile_node = tile-loop from original
 static __isl_give isl_schedule_node *remove_tile_parameters(
@@ -966,17 +990,19 @@ static __isl_give isl_schedule_node *remove_tile_parameters(
 		isl_schedule_node_band_get_partial_schedule_union_map(tile_node);
 	isl_union_map *point_schedule =
 		isl_schedule_node_band_get_partial_schedule_union_map(point_node);
+	unsigned n_member = schedule_node_total_n_member(tile_node);
 	// isl_union_set *domain =
 	// 	isl_schedule_node_get_domain(tile_node);
 
 	// tile_schedule = isl_union_map_intersect_domain(tile_schedule, domain);
-	tile_schedule = fix_union_map_dims_as_params(tile_schedule, 3, 1, 1);
+	tile_schedule = fix_union_map_dims_as_params(tile_schedule,
+		n_member, 1, 1);
 
 	point_schedule = isl_union_map_flat_range_product(tile_schedule,
 		point_schedule);
 	point_schedule = isl_union_map_project_out(point_schedule, isl_dim_param,
-		isl_union_map_dim(point_schedule, isl_dim_param) - 3, 3);
-	point_schedule = union_map_project_out_out_dims(point_schedule, 3);
+		isl_union_map_dim(point_schedule, isl_dim_param) - n_member, n_member);
+	point_schedule = union_map_project_out_out_dims(point_schedule, n_member);
 
 	point_node = isl_schedule_node_band_reset_schedule(point_node,
 		isl_multi_union_pw_aff_from_union_map(point_schedule));
@@ -1007,11 +1033,12 @@ static __isl_give isl_union_set *bandwise_domain(
 		// 	isl_schedule_node_band_get_partial_schedule_union_map(point_loop);
 		// isl_union_map *sched = isl_union_map_flat_range_product(umap1, umap2);
 		isl_union_map *sched = umap1;
+		unsigned n_member = schedule_node_total_n_member(point_loop);
 
 
 		dom = isl_union_set_apply(dom, isl_union_map_copy(sched));
 		isl_set *dom_set = isl_set_from_union_set(dom);
-		dom_set = fix_set_dims_as_params(dom_set, 3);
+		dom_set = fix_set_dims_as_params(dom_set, n_member);
 		dom = isl_union_set_from_set(dom_set);
 		// dom = isl_union_set_apply(dom, isl_union_map_reverse(sched));
 		dom = isl_union_set_preimage_union_pw_multi_aff(dom,
@@ -1323,7 +1350,8 @@ static __isl_give isl_schedule_node *tile_band(
 		isl_union_map *sched =
 			isl_schedule_node_band_get_partial_schedule_union_map(rescheduled);
 		// fix all previous dimensions
-		sched = fix_union_map_dims_as_params(sched, 0, 0, 0);
+		unsigned n_previous = schedule_node_prefix_n_member(rescheduled);
+		sched = fix_union_map_dims_as_params(sched, n_previous, 0, 0);
 		isl_union_map *point_sched =
 			isl_schedule_node_band_get_partial_schedule_union_map(
 				isl_schedule_node_first_child(isl_schedule_node_copy(node)));
