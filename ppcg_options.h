@@ -33,6 +33,11 @@ struct ppcg_options {
 	int tile;
 	int tile_size;
 
+	#define PPCG_POSTTILE_REORDER_NONE		0
+	#define PPCG_POSTTILE_REORDER_PLUTO		1
+	#define PPCG_POSTTILE_REORDER_SPATIAL	2
+	unsigned posttile_reorder;
+
 	/* Take advantage of private memory. */
 	int use_private_memory;
 
