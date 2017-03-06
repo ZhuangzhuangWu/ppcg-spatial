@@ -714,9 +714,9 @@ static __isl_give isl_printer *print_cuda(__isl_take isl_printer *p,
  * and we close them after generate_gpu has finished.
  */
 int generate_cuda(isl_ctx *ctx, struct ppcg_options *options,
-	const char *input)
+	const char *input, const char *output)
 {
-	struct cuda_info cuda;
+	struct cuda_info cuda = {output};
 	int r;
 
 	cuda_open_files(&cuda, input);
