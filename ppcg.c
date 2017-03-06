@@ -2301,7 +2301,7 @@ int main(int argc, char **argv)
 	if (check_options(ctx) < 0)
 		r = EXIT_FAILURE;
 	else if (options->ppcg->target == PPCG_TARGET_CUDA)
-		r = generate_cuda(ctx, options->ppcg, options->input);
+		r = generate_cuda(ctx, options->ppcg, options->input, options->output);
 	else if (options->ppcg->target == PPCG_TARGET_OPENCL)
 		r = generate_opencl(ctx, options->ppcg, options->input,
 				options->output);
