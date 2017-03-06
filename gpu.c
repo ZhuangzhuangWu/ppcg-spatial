@@ -32,6 +32,7 @@
 #include "gpu_tree.h"
 #include "schedule.h"
 #include "ppcg_options.h"
+#include "post_tile.h"
 #include "print.h"
 #include "util.h"
 
@@ -2804,7 +2805,7 @@ static __isl_give isl_schedule_node *snap_band_to_sizes(
  * Similarly, since the point loops will be mapped to thread ids,
  * we forcibly shift the point loops so that they start at zero.
  */
-static __isl_give isl_schedule_node *tile_band(
+static __isl_give isl_schedule_node *tile_band(struct ppcg_scop *scop,
 	__isl_take isl_schedule_node *node, __isl_take isl_multi_val *sizes)
 {
 	isl_ctx *ctx = isl_schedule_node_get_ctx(node);
@@ -2816,7 +2817,11 @@ static __isl_give isl_schedule_node *tile_band(
 	shift_point = isl_options_get_tile_shift_point_loops(ctx);
 	isl_options_set_tile_shift_point_loops(ctx, 1);
 
-	node = isl_schedule_node_band_tile(node, sizes);
+	if (scop->options->posttile_reorder == PPCG_POSTTILE_REORDER_NONE)
+		node = isl_schedule_node_band_tile(node, sizes);
+	else
+		node = tile_sink_spatially_local_loops(node, scop, sizes,
+			&isl_schedule_node_band_tile);
 
 	isl_options_set_tile_scale_tile_loops(ctx, scale_tile);
 	isl_options_set_tile_shift_point_loops(ctx, shift_point);
@@ -4015,6 +4020,7 @@ static __isl_give isl_schedule_node *mark_outer_permutable(
 	__isl_take isl_schedule_node *node, void *user)
 {
 	struct gpu_gen *gen = user;
+	struct ppcg_scop *scop = gen->prog->scop;
 	int outer;
 	int scale;
 	int tile_len;
@@ -4039,7 +4045,7 @@ static __isl_give isl_schedule_node *mark_outer_permutable(
 	if (tile_len < isl_schedule_node_band_n_member(node))
 		node = isl_schedule_node_band_split(node, tile_len);
 	sizes = construct_band_tiles_sizes(node, tile_size);
-	node = tile_band(node, isl_multi_val_copy(sizes));
+	node = tile_band(scop, node, isl_multi_val_copy(sizes));
 	node = isl_schedule_node_child(node, 0);
 	id = isl_id_alloc(gen->ctx, "thread", NULL);
 	node = isl_schedule_node_insert_mark(node, id);
@@ -4309,6 +4315,14 @@ static __isl_give isl_schedule_constraints *construct_schedule_constraints(
 		coincidence = isl_union_map_copy(dep);
 		validity = dep;
 	}
+
+	if (prog->scop->options->spatial_model != PPCG_SPATIAL_MODEL_NONE) {
+		sc = isl_schedule_constraints_set_spatial_proximity(sc,
+			isl_union_map_copy(prog->scop->retagged_dep));
+		sc = isl_schedule_constraints_set_counted_accesses(sc,
+			isl_union_map_copy(prog->scop->counted_accesses));
+	}
+
 	sc = isl_schedule_constraints_set_validity(sc, validity);
 	sc = isl_schedule_constraints_set_coincidence(sc, coincidence);
 	sc = isl_schedule_constraints_set_proximity(sc, proximity);
