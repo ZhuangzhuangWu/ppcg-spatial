@@ -1466,10 +1466,12 @@ static __isl_give isl_union_map *map_array_accesses_to_next_elements(
 {
 	isl_space *space;
 	isl_union_map *mapped;
+	isl_ctx *ctx = isl_union_map_get_ctx(access);
+	int distance = isl_options_get_schedule_spatial_distance(ctx);
 
 	space = isl_union_map_get_space(access); // get the parameteric space
 	mapped = isl_union_map_empty(space);
-	array_access_next_data data = {mapped, DISTANCE, 0};
+	array_access_next_data data = {mapped, distance, 0};
 
 	isl_union_map *extended = union_map_extend_accesses(access);
 
@@ -1683,9 +1685,11 @@ static isl_stat array_access_to_next_elements_grouped(
 static __isl_give isl_union_map *map_array_accesses_to_next_elements_grouped(
 	__isl_keep isl_union_map *access)
 {
+	isl_ctx *ctx = isl_union_map_get_ctx(access);
+	int distance = isl_options_get_schedule_spatial_distance(ctx);
 	isl_union_map *result = isl_union_map_empty(
 		isl_union_map_get_space(access));
-	struct next_elements_grouped_data data = { DISTANCE, CACHE_SIZE, result };
+	struct next_elements_grouped_data data = { distance, CACHE_SIZE, result };
 	access = union_map_extend_accesses(access);
 
 	if (isl_union_map_foreach_map(access,
