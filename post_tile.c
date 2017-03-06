@@ -348,6 +348,8 @@ __isl_give isl_schedule_node *tile_sink_spatially_local_loops(
 	}
 	isl_union_map_free(counted_accesses);
 
+	node = tile(node, sizes);
+
 	if (max_weight_member == n_member - 1)
 		return node;
 
@@ -361,7 +363,6 @@ __isl_give isl_schedule_node *tile_sink_spatially_local_loops(
 			order[i] = i - 1;
 	}
 
-	node = tile(node, sizes);
 	node = isl_schedule_node_first_child(node);
 	node = isl_schedule_node_band_permute(node, order);
 	node = isl_schedule_node_parent(node);
