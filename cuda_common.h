@@ -4,6 +4,8 @@
 #include <stdio.h>
 
 struct cuda_info {
+   const char *output;
+
 	FILE *host_c;
 	FILE *kernel_c;
 	FILE *kernel_h;

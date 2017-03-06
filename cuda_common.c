@@ -23,7 +23,15 @@ void cuda_open_files(struct cuda_info *info, const char *input)
     char name[PATH_MAX];
     int len;
 
-    len = ppcg_extract_base_name(name, input);
+    if(info->output) {
+       const char *ext;
+
+       ext = strrchr(info->output, '.');
+       len = ext ? ext - info->output : strlen(info->output);
+       memcpy(name, info->output, len);
+    }else {
+      len = ppcg_extract_base_name(name, input);
+    }
 
     strcpy(name + len, "_host.cu");
     info->host_c = fopen(name, "w");
