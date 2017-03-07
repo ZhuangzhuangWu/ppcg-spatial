@@ -1,0 +1,138 @@
+[isl_tab] forcing better solution on 19
+[isl_tab] forcing better solution on 13
+[isl_tab] forcing better solution on 13
+[isl_tab] forcing better solution on 73
+[isl_tab] forcing better solution on 5
+[isl_tab] forcing better solution on 5
+[isl_tab] forcing better solution on 39
+[isl_tab] forcing better solution on 53
+[isl_tab] forcing better solution on 53
+[isl_tab] forcing better solution on 59
+[isl_tab] forcing better solution on 57
+[isl_tab] forcing better solution on 65
+[isl_tab] forcing better solution on 21
+[isl_tab] forcing better solution on 21
+[isl_tab] forcing better solution on 23
+[isl_tab] forcing better solution on 69
+[isl_tab] forcing better solution on 23
+[isl_tab] forcing better solution on 7
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 3
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 5
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 7
+[isl_tab] forcing better solution on 25
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 3
+[isl_tab] forcing better solution on 3
+[isl_tab] forcing better solution on 7
+[isl_tab] forcing better solution on 5
+[isl_tab] forcing better solution on 5
+[isl_tab] forcing better solution on 5
+[isl_tab] forcing better solution on 5
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 3
+[isl_tab] forcing better solution on 3
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+domain: "[m, n] -> { S_19[i, j] : 0 <= i < n and 0 <= j < m; S_25[i, j] : i >= 0 and i < j < m; S_18[i, j] : 0 <= i < n and 0 <= j < m; S_27[i, j, k] : i >= 0 and i < j < m and 0 <= k < n; S_32[]; S_10[j, i] : 0 <= j < m and 0 <= i < n; S_3[j, i] : 0 <= j < m and 0 <= i < n; G_0[i0] : 0 <= i0 < m; S_8[j] : 0 <= j < m; S_1[j] : 0 <= j < m; S_5[j] : 0 <= j < m; S_23[i] : 0 <= i <= -2 + m; S_29[i, j] : i >= 0 and i < j < m }"
+child:
+  context: "[m, n] -> { [] : 0 < m <= 2147483647 and -2147483648 <= n <= 2147483647 }"
+  child:
+    set:
+    - filter: "[m, n] -> { S_19[i, j]; S_25[i, j]; S_18[i, j]; S_27[i, j, k]; S_10[j, i]; S_3[j, i]; G_0[i0]; S_8[j]; S_1[j]; S_5[j]; S_29[i, j] }"
+      child:
+        sequence:
+        - filter: "[m, n] -> { S_25[i, j] }"
+          child:
+            schedule: "[m, n] -> [{ S_25[i, j] -> [(32*floor((i)/32))] }, { S_25[i, j] -> [(32*floor((j)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 1 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 1 }"
+            child:
+              schedule: "[m, n] -> [{ S_25[i, j] -> [(i - 32*floor((i)/32))] }, { S_25[i, j] -> [(j - 32*floor((j)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 1 ]
+        - filter: "[m, n] -> { S_3[j, i]; S_1[j] }"
+          child:
+            schedule: "[m, n] -> [{ S_1[j] -> [(32*floor((j)/32))]; S_3[j, i] -> [(32*floor((j)/32))] }, { S_1[j] -> [(0)]; S_3[j, i] -> [(32*floor((i)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 0 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 1 }"
+            child:
+              schedule: "[m, n] -> [{ S_1[j] -> [(j - 32*floor((j)/32))]; S_3[j, i] -> [(j - 32*floor((j)/32))] }, { S_1[j] -> [(0)]; S_3[j, i] -> [(i - 32*floor((i)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 0 ]
+              child:
+                sequence:
+                - filter: "[m, n] -> { S_1[j] }"
+                - filter: "[m, n] -> { S_3[j, i] }"
+        - filter: "[m, n] -> { S_8[j] }"
+          child:
+            schedule: "[m, n] -> [{ S_8[j] -> [(j)] }]"
+            permutable: 1
+            coincident: [ 1 ]
+        - filter: "[m, n] -> { S_10[j, i]; G_0[i0]; S_5[j] }"
+          child:
+            schedule: "[m, n] -> [{ G_0[i0] -> [(32*floor((i0)/32))]; S_5[j] -> [(32*floor((j)/32))]; S_10[j, i] -> [(32*floor((j)/32))] }, { G_0[i0] -> [(32*floor((n)/32))]; S_5[j] -> [(0)]; S_10[j, i] -> [(32*floor((1 + i)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 0 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 1 }"
+            child:
+              schedule: "[m, n] -> [{ G_0[i0] -> [(i0 - 32*floor((i0)/32))]; S_5[j] -> [(j - 32*floor((j)/32))]; S_10[j, i] -> [(j - 32*floor((j)/32))] }, { G_0[i0] -> [(n - 32*floor((n)/32))]; S_5[j] -> [(1)]; S_10[j, i] -> [(1 + i - 32*floor((1 + i)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 0 ]
+              child:
+                sequence:
+                - filter: "[m, n] -> { S_5[j] }"
+                - filter: "[m, n] -> { S_10[j, i] }"
+                - filter: "[m, n] -> { G_0[i0] }"
+                  child:
+                    contraction: "[m, n] -> { S_14[j] -> G_0[(j)]; S_12[j] -> G_0[(j)]; S_13[j] -> G_0[(j)] }"
+                    expansion: "[m, n] -> { G_0[i0] -> S_12[j = i0]; G_0[i0] -> S_14[j = i0]; G_0[i0] -> S_13[j = i0] }"
+                    child:
+                      sequence:
+                      - filter: "[m, n] -> { S_12[j] }"
+                      - filter: "[m, n] -> { S_13[j] }"
+                      - filter: "[m, n] -> { S_14[j] }"
+        - filter: "[m, n] -> { S_19[i, j]; S_18[i, j] }"
+          child:
+            schedule: "[m, n] -> [{ S_18[i, j] -> [(32*floor((i)/32))]; S_19[i, j] -> [(32*floor((i)/32))] }, { S_18[i, j] -> [(32*floor((j)/32))]; S_19[i, j] -> [(32*floor((j)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 1 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 1 }"
+            child:
+              schedule: "[m, n] -> [{ S_18[i, j] -> [(i - 32*floor((i)/32))]; S_19[i, j] -> [(i - 32*floor((i)/32))] }, { S_18[i, j] -> [(j - 32*floor((j)/32))]; S_19[i, j] -> [(j - 32*floor((j)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 1 ]
+              child:
+                sequence:
+                - filter: "[m, n] -> { S_18[i, j] }"
+                - filter: "[m, n] -> { S_19[i, j] }"
+        - filter: "[m, n] -> { S_27[i, j, k]; S_29[i, j] }"
+          child:
+            schedule: "[m, n] -> [{ S_27[i, j, k] -> [(32*floor((i)/32))]; S_29[i, j] -> [(32*floor((i)/32))] }, { S_27[i, j, k] -> [(32*floor((j)/32))]; S_29[i, j] -> [(32*floor((j)/32))] }, { S_27[i, j, k] -> [(32*floor((1 + k)/32))]; S_29[i, j] -> [(32*floor((n)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 1, 0 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 2 }"
+            child:
+              schedule: "[m, n] -> [{ S_27[i, j, k] -> [(i - 32*floor((i)/32))]; S_29[i, j] -> [(i - 32*floor((i)/32))] }, { S_27[i, j, k] -> [(j - 32*floor((j)/32))]; S_29[i, j] -> [(j - 32*floor((j)/32))] }, { S_27[i, j, k] -> [(1 + k - 32*floor((1 + k)/32))]; S_29[i, j] -> [(n - 32*floor((n)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 1, 0 ]
+              child:
+                sequence:
+                - filter: "[m, n] -> { S_27[i, j, k] }"
+                - filter: "[m, n] -> { S_29[i, j] }"
+    - filter: "[m, n] -> { S_23[i] }"
+      child:
+        schedule: "[m, n] -> [{ S_23[i] -> [(i)] }]"
+        permutable: 1
+        coincident: [ 1 ]
+    - filter: "[m, n] -> { S_32[] }"
+../../isl/isl_ctx.c:253: isl_ctx freed, but some objects still reference it
