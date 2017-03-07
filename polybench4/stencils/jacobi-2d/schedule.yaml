@@ -1,0 +1,16 @@
+domain: "[tsteps, n] -> { S_8[t, i, j] : 0 <= t < tsteps and 0 < i <= -2 + n and 0 < j <= -2 + n; S_3[t, i, j] : 0 <= t < tsteps and 0 < i <= -2 + n and 0 < j <= -2 + n }"
+child:
+  context: "[tsteps, n] -> { [] : -2147483648 <= tsteps <= 2147483647 and -2147483648 <= n <= 2147483647 and (tsteps <= 0 or (tsteps > 0 and n >= -2147483647)) }"
+  child:
+    schedule: "[tsteps, n] -> [{ S_8[t, i, j] -> [(32*floor((t)/32))]; S_3[t, i, j] -> [(32*floor((t)/32))] }, { S_8[t, i, j] -> [(32*floor((1 + 2t + i)/32))]; S_3[t, i, j] -> [(32*floor((2t + i)/32))] }, { S_8[t, i, j] -> [(32*floor((1 + 2t + i + j)/32))]; S_3[t, i, j] -> [(32*floor((2t + i + j)/32))] }]"
+    permutable: 1
+    options: "{ atomic[i0] : 0 <= i0 <= 2 }"
+    child:
+      schedule: "[tsteps, n] -> [{ S_8[t, i, j] -> [(t - 32*floor((t)/32))]; S_3[t, i, j] -> [(t - 32*floor((t)/32))] }, { S_8[t, i, j] -> [(i - 32*floor((i)/32))]; S_3[t, i, j] -> [(i - 32*floor((i)/32))] }, { S_8[t, i, j] -> [(1 + i + j - 32*floor((1 + i + j)/32))]; S_3[t, i, j] -> [(i + j - 32*floor((i + j)/32))] }]"
+      permutable: 1
+      coincident: [ 1, 1, 1 ]
+      child:
+        sequence:
+        - filter: "[tsteps, n] -> { S_3[t, i, j] }"
+        - filter: "[tsteps, n] -> { S_8[t, i, j] }"
+

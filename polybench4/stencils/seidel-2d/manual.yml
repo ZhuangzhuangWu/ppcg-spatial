@@ -1,0 +1,4 @@
+domain: "[tsteps, n] -> { S_3[t, i, j] : 0 <= t < tsteps and 0 < i <= -2 + n and 0 < j <= -2 + n }"
+child:
+  schedule: "[tsteps, n] -> [{ S_3[t, i, j] -> [(t + i)] }, { S_3[t, i, j] -> [(i)] }, { S_3[t, i, j] -> [(3t + 2i + j)] }]"
+  permutable: 1

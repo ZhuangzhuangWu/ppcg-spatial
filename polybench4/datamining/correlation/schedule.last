@@ -1,0 +1,141 @@
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 0
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 0
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 0
+[isl_tab] forcing better solution on 0
+[m, n] -> { S_5[j] -> S_18[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_14[j] -> S_19[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_12[j] -> S_13[j'] : j' = j and j >= 0 and j < m; S_13[j] -> S_14[j'] : j' = j and j >= 0 and j < m; S_25[i, j] -> S_27[i', j', k] : i' = i and j' = j and k = 0 and n > 0 and i >= 0 and j > i and j <= 1199 and j < m; S_10[j, i] -> S_10[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_5[j] -> S_10[j', i] : j' = j and j >= 0 and j < m and i >= 0 and i < n; S_18[i, j] -> S_19[i', j'] : i' = i and j' = j and i >= 0 and i < n and j >= 0 and j <= 1199 and j < m; S_8[j] -> S_12[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_10[j, i] -> S_12[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m; S_25[i, j] -> S_29[i', j'] : i' = i and j' = j and j < m and i >= 0 and j > i and n <= 0 and j <= 1199; S_1[j] -> S_3[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_3[j, i] -> S_3[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_8[j] -> S_10[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_1[j] -> S_5[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_19[i, j] -> S_27[i', j', k] : (i' = j and k = i and i >= 0 and i < n and j >= 0 and j <= 1199 and j' > j and j' < m) or (j' = j and k = i and i >= 0 and i < n and j <= 1199 and j < m and i' >= 0 and i' < j); S_27[i, j, k] -> S_27[i', j', k'] : i' = i and j' = j and k' = 1 + k and i >= 0 and j > i and j <= 1199 and j < m and k >= 0 and k <= -2 + n; S_27[i, j, k] -> S_29[i', j'] : k = -1 + n and i' = i and j' = j and j < m and i >= 0 and j > i and n > 0 and j <= 1199; S_3[j, i] -> S_5[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m }
+[m, n] -> {  }
+[isl_tab] forcing better solution on 1
+[ppcg] filtering
+[m, n] -> { [i0, i1] -> [o0, o1] : i1 = 0 and o0 = i0 and o1 = 0 and n > 0 and i0 >= 0 and i0 < m }
+[m, n] -> { S_1[j] -> S_3[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m }
+[ppcg] filtering
+[m, n] -> { [i0, i1] -> [o0, o1] : o0 = i0 and o1 = 1 + i1 and i0 >= 0 and i0 < m and i1 >= 0 and i1 <= -2 + n }
+[m, n] -> { S_3[j, i] -> S_3[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n }
+[m, n] -> { S_5[j] -> S_18[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_14[j] -> S_19[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_12[j] -> S_13[j'] : j' = j and j >= 0 and j < m; S_13[j] -> S_14[j'] : j' = j and j >= 0 and j < m; S_25[i, j] -> S_27[i', j', k] : i' = i and j' = j and k = 0 and n > 0 and i >= 0 and j > i and j <= 1199 and j < m; S_10[j, i] -> S_10[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_5[j] -> S_10[j', i] : j' = j and j >= 0 and j < m and i >= 0 and i < n; S_18[i, j] -> S_19[i', j'] : i' = i and j' = j and i >= 0 and i < n and j >= 0 and j <= 1199 and j < m; S_8[j] -> S_12[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_10[j, i] -> S_12[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m; S_25[i, j] -> S_29[i', j'] : i' = i and j' = j and j < m and i >= 0 and j > i and n <= 0 and j <= 1199; S_1[j] -> S_3[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_3[j, i] -> S_3[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_8[j] -> S_10[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_1[j] -> S_5[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_19[i, j] -> S_27[i', j', k] : (i' = j and k = i and i >= 0 and i < n and j >= 0 and j <= 1199 and j' > j and j' < m) or (j' = j and k = i and i >= 0 and i < n and j <= 1199 and j < m and i' >= 0 and i' < j); S_27[i, j, k] -> S_27[i', j', k'] : i' = i and j' = j and k' = 1 + k and i >= 0 and j > i and j <= 1199 and j < m and k >= 0 and k <= -2 + n; S_27[i, j, k] -> S_29[i', j'] : k = -1 + n and i' = i and j' = j and j < m and i >= 0 and j > i and n > 0 and j <= 1199; S_3[j, i] -> S_5[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m }
+[m, n] -> { S_1[j] -> S_3[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_3[j, i] -> S_3[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n }
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[ppcg] filtering
+[m, n] -> { [i0, i1] -> [o0, o1] : o0 = i0 and o1 = 1 + i1 and i0 >= 0 and i0 < m and i1 >= 0 and i1 <= -2 + n }
+[m, n] -> { S_10[j, i] -> S_10[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n }
+[m, n] -> { S_5[j] -> S_18[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_14[j] -> S_19[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_12[j] -> S_13[j'] : j' = j and j >= 0 and j < m; S_13[j] -> S_14[j'] : j' = j and j >= 0 and j < m; S_25[i, j] -> S_27[i', j', k] : i' = i and j' = j and k = 0 and n > 0 and i >= 0 and j > i and j <= 1199 and j < m; S_10[j, i] -> S_10[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_5[j] -> S_10[j', i] : j' = j and j >= 0 and j < m and i >= 0 and i < n; S_18[i, j] -> S_19[i', j'] : i' = i and j' = j and i >= 0 and i < n and j >= 0 and j <= 1199 and j < m; S_8[j] -> S_12[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_10[j, i] -> S_12[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m; S_25[i, j] -> S_29[i', j'] : i' = i and j' = j and j < m and i >= 0 and j > i and n <= 0 and j <= 1199; S_1[j] -> S_3[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_3[j, i] -> S_3[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_8[j] -> S_10[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_1[j] -> S_5[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_19[i, j] -> S_27[i', j', k] : (i' = j and k = i and i >= 0 and i < n and j >= 0 and j <= 1199 and j' > j and j' < m) or (j' = j and k = i and i >= 0 and i < n and j <= 1199 and j < m and i' >= 0 and i' < j); S_27[i, j, k] -> S_27[i', j', k'] : i' = i and j' = j and k' = 1 + k and i >= 0 and j > i and j <= 1199 and j < m and k >= 0 and k <= -2 + n; S_27[i, j, k] -> S_29[i', j'] : k = -1 + n and i' = i and j' = j and j < m and i >= 0 and j > i and n > 0 and j <= 1199; S_3[j, i] -> S_5[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m }
+[m, n] -> { S_10[j, i] -> S_10[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n }
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 1
+[ppcg] filtering
+[m, n] -> { [i0, i1] -> [o0, o1] : o0 = i0 and o1 = i1 and i0 >= 0 and i0 < n and i1 >= 0 and i1 <= 1199 and i1 < m }
+[m, n] -> { S_18[i, j] -> S_19[i', j'] : i' = i and j' = j and i >= 0 and i < n and j >= 0 and j <= 1199 and j < m }
+[m, n] -> { S_5[j] -> S_18[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_14[j] -> S_19[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_12[j] -> S_13[j'] : j' = j and j >= 0 and j < m; S_13[j] -> S_14[j'] : j' = j and j >= 0 and j < m; S_25[i, j] -> S_27[i', j', k] : i' = i and j' = j and k = 0 and n > 0 and i >= 0 and j > i and j <= 1199 and j < m; S_10[j, i] -> S_10[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_5[j] -> S_10[j', i] : j' = j and j >= 0 and j < m and i >= 0 and i < n; S_18[i, j] -> S_19[i', j'] : i' = i and j' = j and i >= 0 and i < n and j >= 0 and j <= 1199 and j < m; S_8[j] -> S_12[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_10[j, i] -> S_12[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m; S_25[i, j] -> S_29[i', j'] : i' = i and j' = j and j < m and i >= 0 and j > i and n <= 0 and j <= 1199; S_1[j] -> S_3[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_3[j, i] -> S_3[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_8[j] -> S_10[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_1[j] -> S_5[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_19[i, j] -> S_27[i', j', k] : (i' = j and k = i and i >= 0 and i < n and j >= 0 and j <= 1199 and j' > j and j' < m) or (j' = j and k = i and i >= 0 and i < n and j <= 1199 and j < m and i' >= 0 and i' < j); S_27[i, j, k] -> S_27[i', j', k'] : i' = i and j' = j and k' = 1 + k and i >= 0 and j > i and j <= 1199 and j < m and k >= 0 and k <= -2 + n; S_27[i, j, k] -> S_29[i', j'] : k = -1 + n and i' = i and j' = j and j < m and i >= 0 and j > i and n > 0 and j <= 1199; S_3[j, i] -> S_5[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m }
+[m, n] -> { S_18[i, j] -> S_19[i', j'] : i' = i and j' = j and i >= 0 and i < n and j >= 0 and j <= 1199 and j < m }
+[isl_tab] forcing better solution on 9
+[isl_tab] forcing better solution on 1
+[ppcg] filtering
+[m, n] -> { [i0, i1, i2] -> [o0, o1, o2] : o0 = i0 and o1 = i1 and o2 = 1 + i2 and i0 >= 0 and i1 > i0 and i1 <= 1199 and i1 < m and i2 >= 0 and i2 <= -2 + n }
+[m, n] -> { S_27[i, j, k] -> S_27[i', j', k'] : i' = i and j' = j and k' = 1 + k and i >= 0 and j > i and j <= 1199 and j < m and k >= 0 and k <= -2 + n }
+[ppcg] filtering
+[m, n] -> { [i0, i1, i2] -> [o0, o1, o2] : i2 = -1 + n and o0 = i0 and o1 = i1 and o2 = n and i1 < m and i0 >= 0 and i1 > i0 and n > 0 and i1 <= 1199 }
+[m, n] -> { S_27[i, j, k] -> S_29[i', j'] : k = -1 + n and i' = i and j' = j and j < m and i >= 0 and j > i and n > 0 and j <= 1199 }
+[m, n] -> { S_5[j] -> S_18[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_14[j] -> S_19[i, j'] : j' = j and i >= 0 and i < n and j >= 0 and j < m; S_12[j] -> S_13[j'] : j' = j and j >= 0 and j < m; S_13[j] -> S_14[j'] : j' = j and j >= 0 and j < m; S_25[i, j] -> S_27[i', j', k] : i' = i and j' = j and k = 0 and n > 0 and i >= 0 and j > i and j <= 1199 and j < m; S_10[j, i] -> S_10[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_5[j] -> S_10[j', i] : j' = j and j >= 0 and j < m and i >= 0 and i < n; S_18[i, j] -> S_19[i', j'] : i' = i and j' = j and i >= 0 and i < n and j >= 0 and j <= 1199 and j < m; S_8[j] -> S_12[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_10[j, i] -> S_12[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m; S_25[i, j] -> S_29[i', j'] : i' = i and j' = j and j < m and i >= 0 and j > i and n <= 0 and j <= 1199; S_1[j] -> S_3[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_3[j, i] -> S_3[j', i'] : j' = j and i' = 1 + i and j >= 0 and j < m and i >= 0 and i <= -2 + n; S_8[j] -> S_10[j', i] : j' = j and i = 0 and n > 0 and j >= 0 and j < m; S_1[j] -> S_5[j'] : j' = j and n <= 0 and j >= 0 and j < m; S_19[i, j] -> S_27[i', j', k] : (i' = j and k = i and i >= 0 and i < n and j >= 0 and j <= 1199 and j' > j and j' < m) or (j' = j and k = i and i >= 0 and i < n and j <= 1199 and j < m and i' >= 0 and i' < j); S_27[i, j, k] -> S_27[i', j', k'] : i' = i and j' = j and k' = 1 + k and i >= 0 and j > i and j <= 1199 and j < m and k >= 0 and k <= -2 + n; S_27[i, j, k] -> S_29[i', j'] : k = -1 + n and i' = i and j' = j and j < m and i >= 0 and j > i and n > 0 and j <= 1199; S_3[j, i] -> S_5[j'] : i = -1 + n and j' = j and n > 0 and j >= 0 and j < m }
+[m, n] -> { S_27[i, j, k] -> S_29[i', j'] : k = -1 + n and i' = i and j' = j and j < m and i >= 0 and j > i and n > 0 and j <= 1199; S_27[i, j, k] -> S_27[i', j', k'] : i' = i and j' = j and k' = 1 + k and i >= 0 and j > i and j <= 1199 and j < m and k >= 0 and k <= -2 + n }
+[isl_tab] forcing better solution on 5
+[isl_tab] forcing better solution on 1
+[isl_tab] forcing better solution on 3
+[isl_tab] forcing better solution on 1
+domain: "[m, n] -> { S_19[i, j] : 0 <= i < n and 0 <= j < m; S_25[i, j] : i >= 0 and i < j < m; S_18[i, j] : 0 <= i < n and 0 <= j < m; S_27[i, j, k] : i >= 0 and i < j < m and 0 <= k < n; S_32[]; S_10[j, i] : 0 <= j < m and 0 <= i < n; S_3[j, i] : 0 <= j < m and 0 <= i < n; G_0[i0] : 0 <= i0 < m; S_8[j] : 0 <= j < m; S_1[j] : 0 <= j < m; S_5[j] : 0 <= j < m; S_23[i] : 0 <= i <= -2 + m; S_29[i, j] : i >= 0 and i < j < m }"
+child:
+  context: "[m, n] -> { [] : 0 < m <= 2147483647 and -2147483648 <= n <= 2147483647 }"
+  child:
+    set:
+    - filter: "[m, n] -> { S_19[i, j]; S_25[i, j]; S_18[i, j]; S_27[i, j, k]; S_10[j, i]; S_3[j, i]; G_0[i0]; S_8[j]; S_1[j]; S_5[j]; S_29[i, j] }"
+      child:
+        sequence:
+        - filter: "[m, n] -> { S_25[i, j] }"
+          child:
+            schedule: "[m, n] -> [{ S_25[i, j] -> [(32*floor((i)/32))] }, { S_25[i, j] -> [(32*floor((j)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 1 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 1 }"
+            child:
+              schedule: "[m, n] -> [{ S_25[i, j] -> [(i - 32*floor((i)/32))] }, { S_25[i, j] -> [(j - 32*floor((j)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 1 ]
+        - filter: "[m, n] -> { S_8[j] }"
+          child:
+            schedule: "[m, n] -> [{ S_8[j] -> [(j)] }]"
+            permutable: 1
+            coincident: [ 1 ]
+        - filter: "[m, n] -> { S_3[j, i]; S_1[j] }"
+          child:
+            schedule: "[m, n] -> [{ S_1[j] -> [(32*floor((j)/32))]; S_3[j, i] -> [(32*floor((j)/32))] }, { S_1[j] -> [(0)]; S_3[j, i] -> [(32*floor((i)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 0 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 1 }"
+            child:
+              schedule: "[m, n] -> [{ S_1[j] -> [(0)]; S_3[j, i] -> [(i - 32*floor((i)/32))] }, { S_1[j] -> [(j - 32*floor((j)/32))]; S_3[j, i] -> [(j - 32*floor((j)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 1 ]
+              child:
+                sequence:
+                - filter: "[m, n] -> { S_1[j] }"
+                - filter: "[m, n] -> { S_3[j, i] }"
+        - filter: "[m, n] -> { S_5[j] }"
+          child:
+            schedule: "[m, n] -> [{ S_5[j] -> [(j)] }]"
+            permutable: 1
+            coincident: [ 1 ]
+        - filter: "[m, n] -> { S_10[j, i]; G_0[i0] }"
+          child:
+            schedule: "[m, n] -> [{ G_0[i0] -> [(32*floor((i0)/32))]; S_10[j, i] -> [(32*floor((j)/32))] }, { G_0[i0] -> [(32*floor((n)/32))]; S_10[j, i] -> [(32*floor((i)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 0 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 1 }"
+            child:
+              schedule: "[m, n] -> [{ S_10[j, i] -> [(i - 32*floor((i)/32))] }, { S_10[j, i] -> [(j - 32*floor((j)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 1 ]
+        - filter: "[m, n] -> { S_19[i, j]; S_18[i, j] }"
+          child:
+            schedule: "[m, n] -> [{ S_18[i, j] -> [(32*floor((i)/32))]; S_19[i, j] -> [(32*floor((i)/32))] }, { S_18[i, j] -> [(32*floor((j)/32))]; S_19[i, j] -> [(32*floor((j)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 1 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 1 }"
+            child:
+              schedule: "[m, n] -> [{ S_18[i, j] -> [(i - 32*floor((i)/32))]; S_19[i, j] -> [(i - 32*floor((i)/32))] }, { S_18[i, j] -> [(j - 32*floor((j)/32))]; S_19[i, j] -> [(1 + j - 32*floor((1 + j)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 1 ]
+              child:
+                sequence:
+                - filter: "[m, n] -> { S_19[i, j] }"
+                - filter: "[m, n] -> { S_18[i, j] }"
+        - filter: "[m, n] -> { S_27[i, j, k]; S_29[i, j] }"
+          child:
+            schedule: "[m, n] -> [{ S_27[i, j, k] -> [(32*floor((i)/32))]; S_29[i, j] -> [(32*floor((i)/32))] }, { S_27[i, j, k] -> [(32*floor((j)/32))]; S_29[i, j] -> [(32*floor((j)/32))] }, { S_27[i, j, k] -> [(32*floor((k)/32))]; S_29[i, j] -> [(32*floor((n)/32))] }]"
+            permutable: 1
+            coincident: [ 1, 1, 0 ]
+            options: "{ atomic[i0] : 0 <= i0 <= 2 }"
+            child:
+              schedule: "[m, n] -> [{ S_27[i, j, k] -> [(i - 32*floor((i)/32))]; S_29[i, j] -> [(i - 32*floor((i)/32))] }, { S_27[i, j, k] -> [(1 + k - 32*floor((1 + k)/32))]; S_29[i, j] -> [(n - 32*floor((n)/32))] }, { S_27[i, j, k] -> [(j - 32*floor((j)/32))]; S_29[i, j] -> [(j - 32*floor((j)/32))] }]"
+              permutable: 1
+              coincident: [ 1, 1, 1 ]
+              child:
+                sequence:
+                - filter: "[m, n] -> { S_27[i, j, k] }"
+                - filter: "[m, n] -> { S_29[i, j] }"
+    - filter: "[m, n] -> { S_23[i] }"
+      child:
+        schedule: "[m, n] -> [{ S_23[i] -> [(i)] }]"
+        permutable: 1
+        coincident: [ 1 ]
+    - filter: "[m, n] -> { S_32[] }"
+../../isl/isl_ctx.c:253: isl_ctx freed, but some objects still reference it
