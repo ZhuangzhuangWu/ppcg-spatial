@@ -1,14 +1,54 @@
-PPCG=/home/ftynse/ppcg/build2/ppcg
-INC=/home/ftynse/ppcg/polybench4/utilities
+ROOT = /home/chandan/work/ppcg_spatial/ppcg-spatial
 
-PPCG_EXE=/home/ftynse/ppcg/build2/.libs/ppcg
-LD_PATH=/home/ftynse/ppcg/build2/.libs/:/home/ftynse/ppcg/build2/isl/.libs:/home/ftynse/ppcg/build2/pet/.libs
+PPCG=${ROOT}/ppcg
+INC=${ROOT}/polybench4/utilities
 
-PBO=/home/ftynse/ppcg/polybench4/utilities/polybench.o
-PBC=/home/ftynse/ppcg/polybench4/utilities/polybench.c
+PPCG_EXE=${ROOT}/build2/.libs/ppcg
+LD_PATH=${ROOT}/.libs/:${ROOT}/isl/.libs:${ROOT}/pet/.libs
 
+PBO=${ROOT}/polybench4/utilities/polybench.o
+PBC=${ROOT}/polybench4/utilities/polybench.c
+POLYBENCH=${ROOT}/polybench4
+POLYFLAGS = -DPOLYBENCH_TIME #-DLARGE_DATASET #-DPOLYBENCH_USE_C99_PROTO #-DPOLTBENCH_DUMP_ARRAYS 
+
+TAR=cuda
+SPAT=endsgrp
 CC=gcc
+CUDA_FLAGS=--no-isl-schedule-maximize-coincidence --isl-schedule-outer-typed-fusion --isl-schedule-spatial-fusion --tile --isl-schedule-max-coefficient=4 --isl-schedule-max-constant-term=10 --no-isl-schedule-parametric -DPOLYBENCH_USE_C99_PROTO --posttile-reorder=spatial
 
+${SRC}_${SPAT}_host.cu: ${SRC}.c
+	${PPCG} ${CUDA_FLAGS} --target=cuda --spatial-model=${SPAT} -I${POLYBENCH}/utilities ${SRC}.c --dump-schedule -o ${SRC}_${SPAT} ${POLYFLAGS}
+
+${SRC}_${SPAT}_cuda.exe: ${SRC}_${SPAT}_host.cu
+	nvcc -O3 ${SRC}_${SPAT}_host.cu ${SRC}_${SPAT}_kernel.cu   ${POLYBENCH}/utilities/polybench.cu  -I${POLYBENCH}/utilities ${POLYFLAGS} -o ${SRC}_${SPAT}_cuda.exe 
+
+cuda_${SPAT}: ${SRC}_${SPAT}_cuda.exe
+	nvprof ./${SRC}_${SPAT}_cuda.exe
+
+${SRC}_host.cu: ${SRC}.c
+	${PPCG} --target=cuda --spatial-model=${SPAT} -I${POLYBENCH}/utilities ${SRC}.c --dump-schedule ${POLYFLAGS}
+
+${SRC}_cuda.exe: ${SRC}_host.cu
+	nvcc -O3 ${SRC}_host.cu ${SRC}_kernel.cu   ${POLYBENCH}/utilities/polybench.cu  -I${POLYBENCH}/utilities ${POLYFLAGS} -o ${SRC}_cuda.exe 
+
+cuda: ${SRC}_cuda.exe
+	nvprof ./${SRC}_cuda.exe
+
+run: ${SRC}_cuda.exe ${SRC}_${SPAT}_cuda.exe
+	nvprof ./${SRC}_cuda.exe
+	nvprof ./${SRC}_${SPAT}_cuda.exe
+
+comprare: ${SRC}_cuda.exe ${SRC}_${SPAT}_cuda.exe
+	./${SRC}_cuda.exe 2>out_orig
+	./${SRC}_${SPAT}_cuda.exe 2>out_spat
+	diff -q out_orig out_spat
+
+prof: ${SRC}_cuda.exe ${SRC}_${SPAT}_cuda.exe
+	echo ${SRC} >>${DUMP}
+	echo "PPCG" >>${DUMP}
+	nvprof ./${SRC}_cuda.exe |& sed -n "s/.*\(  [0-9]*.[0-9]*[mu]s  kernel[0-9]\).*/\1/p" >>${DUMP}
+	echo "PPCG"${SPAT} >>${DUMP}
+	nvprof ./${SRC}_${SPAT}_cuda.exe |& sed -n "s/.*\(  [0-9]*.[0-9]*[mu]s  kernel[0-9]\).*/\1/p" >>${DUMP}
 orig: ${SRC}.c
 	cp ${SRC}.c ${SRC}.orig.c
 
@@ -40,7 +80,7 @@ pluto_tiled: ${SRC}.c
 	polycc ${SRC}.c --tile --partlbtile --intratileopt -q -o ${SRC}.pluto.tile.c --parallel
 
 clean:
-	rm -rf *.ppcg.c *.cu *.spatial.c *.only_cache_deps.c
+	rm -rf *.ppcg.c *.cu *.spatial.c *.only_cache_deps.c *.typedfuse.c *.outer.c *.single.c *.spat.c *.typedfuse.outer.c *.typedfuse.outer.single.c *.typedfuse.single.c *.cl *.hu *.default.c *.exe
 
 pbo: $(PBO)
 
