@@ -27,6 +27,7 @@ for i in "$@"; do
       cd "$dir"
       cat > Makefile <<EOF
 SRC := $fnc
+DUMP := ${oldpwd}/time.dat
 include ${oldpwd}/common.mk
 EOF
 
@@ -46,6 +47,10 @@ EOF
         make pluto 2>/dev/null >/dev/null;
       elif [ $suffix = "orig" ]; then
         cp $fnc.c $fnc.orig.c > /dev/null;
+		elif [ $suffix = "prof" ]; then 
+			make prof 2>/dev/null >/dev/null;
+		elif [ $suffix = "clean" ]; then 
+			make clean 2>/dev/null >/dev/null;
       elif [ $suffix = "cuda" ]; then
         PPCG_FLAGS="$flags" make spat_cuda 2>/dev/null >/dev/null
       else
