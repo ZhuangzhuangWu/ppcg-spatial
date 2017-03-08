@@ -1,13 +1,8 @@
 #!/bin/bash
-./build.sh \
-    pluto "pluto" \
-    ppcg "ppcg" \
-    default "--openmp" \
-    outer "--isl-schedule-outer-coincidence --openmp" \
-    outer.single "--isl-schedule-single-outer-coincidence --isl-schedule-outer-coincidence --openmp" \
-    single "--isl-schedule-single-outer-coincidence --openmp" \
-    typedfuse "--no-isl-schedule-maximize-coincidence --isl-schedule-outer-typed-fusion --openmp" \
-    typedfuse.outer "--no-isl-schedule-maximize-coincidence --isl-schedule-outer-typed-fusion --isl-schedule-outer-coincidence --openmp" \
-    typedfuse.single "--no-isl-schedule-maximize-coincidence --isl-schedule-outer-typed-fusion --isl-schedule-single-outer-coincidence" \
-    typedfuse.outer.single "--no-isl-schedule-maximize-coincidence --isl-schedule-outer-typed-fusion --isl-schedule-single-outer-coincidence --isl-schedule-outer-coincidence"
+./parallel_build.sh \
+    orig "" \
+    default "--target=c --openmp --tile --spatial-model=none" \
+    default.posttile "--target=c --openmp --spatial-model=none --tile --posttile-reorder=pluto" \
+    spatial "--target=c --openmp --tile --isl-schedule-single-outer-coincidence --no-isl-schedule-maximize-coincidence --isl-schedule-outer-typed-fusion --isl-schedule-spatial-fusion --isl-schedule-outer-coincidence --isl-schedule-max-coefficient=4 --isl-schedule-max-constant-term=10 --no-isl-schedule-parametric -DPOLYBENCH_USE_C99_PROTO" \
+    spatial.posttile "--target=c --openmp --tile --isl-schedule-single-outer-coincidence --no-isl-schedule-maximize-coincidence --isl-schedule-outer-typed-fusion --isl-schedule-spatial-fusion --isl-schedule-outer-coincidence --isl-schedule-max-coefficient=4 --isl-schedule-max-constant-term=10 --no-isl-schedule-parametric -DPOLYBENCH_USE_C99_PROTO --posttile-reorder=spatial"
 
