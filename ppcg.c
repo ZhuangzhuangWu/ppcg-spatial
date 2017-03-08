@@ -2109,6 +2109,68 @@ static __isl_give isl_union_map *compute_counted_accesses(
 	return counted_accesses;
 }
 
+static __isl_give isl_basic_map *remove_constant_upper_bounds(
+	__isl_take isl_basic_map *bmap, void *user)
+{
+	isl_constraint_list *clist = isl_basic_map_get_constraint_list(bmap);
+	isl_space *space = isl_basic_map_get_space(bmap);
+	isl_basic_map *result = isl_basic_map_universe(space);
+	int n = isl_constraint_list_n_constraint(clist);
+	int n_in = isl_basic_map_dim(bmap, isl_dim_in);
+	isl_ctx *ctx = isl_basic_map_get_ctx(bmap);
+	int i, j;
+
+	(void) user;
+	isl_basic_map_free(bmap);
+
+	for (i = 0; i < n; ++i) {
+		isl_constraint *c = isl_constraint_list_get_constraint(clist, i);
+		int skip = 0;
+		for (j = 0; j < n_in; ++j) {
+			isl_bool r = isl_constraint_is_upper_bound(c, isl_dim_in, j);
+			isl_val *v;
+
+			if (r == isl_bool_error)
+				return isl_basic_map_free(result);
+			if (!r)
+				continue;
+
+			v = isl_constraint_get_constant_val(c);
+			r = isl_val_gt(v, isl_val_int_from_si(ctx, 100));
+
+			if (r == isl_bool_error)
+				return isl_basic_map_free(result);
+			if (!r)
+				continue;
+
+			skip = 1;
+			break;
+		}
+
+		if (skip)
+			isl_constraint_free(c);
+		else
+			result = isl_basic_map_add_constraint(result, c);
+
+	}
+	isl_constraint_list_free(clist);
+
+	return result;
+}
+
+static __isl_give isl_map *remove_constant_upper_bounds_map(
+	__isl_take isl_map *map, void *user)
+{
+	return map_transform(map, &remove_constant_upper_bounds, user);
+}
+
+static __isl_give isl_union_map *remove_constant_upper_bounds_umap(
+	__isl_take isl_union_map *map)
+{
+	return union_map_transform(map, &remove_constant_upper_bounds_map,
+		NULL);
+}
+
 /* Extract a ppcg_scop from a pet_scop.
  *
  * The constructed ppcg_scop refers to elements from the pet_scop
@@ -2143,12 +2205,18 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	}
 	ps->domain = collect_non_kill_domains(scop);
 	ps->call = collect_call_domains(scop);
-	ps->tagged_reads = pet_scop_get_tagged_may_reads(scop);
-	ps->reads = pet_scop_get_may_reads(scop);
-	ps->tagged_may_writes = pet_scop_get_tagged_may_writes(scop);
-	ps->may_writes = pet_scop_get_may_writes(scop);
-	ps->tagged_must_writes = pet_scop_get_tagged_must_writes(scop);
-	ps->must_writes = pet_scop_get_must_writes(scop);
+	ps->tagged_reads = remove_constant_upper_bounds_umap(
+		pet_scop_get_tagged_may_reads(scop));
+	ps->reads = remove_constant_upper_bounds_umap(
+		pet_scop_get_may_reads(scop));
+	ps->tagged_may_writes = remove_constant_upper_bounds_umap(
+		pet_scop_get_tagged_may_writes(scop));
+	ps->may_writes = remove_constant_upper_bounds_umap(
+		pet_scop_get_may_writes(scop));
+	ps->tagged_must_writes = remove_constant_upper_bounds_umap(
+		pet_scop_get_tagged_must_writes(scop));
+	ps->must_writes = remove_constant_upper_bounds_umap(
+		pet_scop_get_must_writes(scop));
 	ps->tagged_must_kills = pet_scop_get_tagged_must_kills(scop);
 	ps->must_kills = pet_scop_get_must_kills(scop);
 	ps->schedule = isl_schedule_copy(scop->schedule);
@@ -2169,6 +2237,13 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	compute_tagger(ps);
 	compute_dependences(ps);
 	eliminate_dead_code(ps);
+
+	ps->tagged_reads = pet_scop_get_tagged_may_reads(scop);
+	ps->reads = pet_scop_get_may_reads(scop);
+	ps->tagged_may_writes = pet_scop_get_tagged_may_writes(scop);
+	ps->may_writes = pet_scop_get_may_writes(scop);
+	ps->tagged_must_writes = pet_scop_get_tagged_must_writes(scop);
+	ps->must_writes = pet_scop_get_must_writes(scop);
 
 	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_SPATIAL ||
 		options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
