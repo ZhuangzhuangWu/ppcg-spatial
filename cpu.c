@@ -169,13 +169,57 @@ static int ast_schedule_dim_is_parallel(__isl_keep isl_ast_build *build,
 	return is_parallel;
 }
 
-/* Mark a for node openmp parallel, if it is the outermost parallel for node.
+/* Set *depth (initialized to 0 by the caller) to the maximum
+ * of the schedule depths of the leaf nodes for which this function is called.
+ */
+static isl_bool update_depth(__isl_keep isl_schedule_node *node, void *user)
+{
+	int *depth = user;
+	int node_depth;
+
+	if (isl_schedule_node_get_type(node) != isl_schedule_node_leaf)
+		return isl_bool_true;
+	node_depth = isl_schedule_node_get_schedule_depth(node);
+	if (node_depth > *depth)
+		*depth = node_depth;
+
+	return isl_bool_false;
+}
+
+/* Compute the number of the loops nested inside the loop identified by
+ * the AST build.
+ */
+static int ast_build_n_child_loops(__isl_keep isl_ast_build *build)
+{
+	isl_schedule_node *node = isl_ast_build_get_schedule_node(build);
+	isl_union_map *sched = isl_ast_build_get_schedule(build);
+	isl_union_set *sched_range = isl_union_map_range(sched);
+	isl_set *sched_set = isl_set_from_union_set(sched_range);
+	isl_space *sched_space = isl_set_get_space(sched_set);
+	int maximum_depth = 0;
+	int current_depth = isl_space_dim(sched_space, isl_dim_out);
+
+	isl_set_free(sched_set);
+	isl_space_free(sched_space);
+
+	if (isl_schedule_node_foreach_descendant_top_down(node, &update_depth,
+	    &maximum_depth) < 0)
+		return -1;
+
+	return maximum_depth - current_depth;
+}
+
+/* Mark a for node openmp parallel if it is the outermost parallel for node
+ * and it has at least two nested loops.
  */
 static void mark_openmp_parallel(__isl_keep isl_ast_build *build,
 	struct ast_build_userinfo *build_info,
 	struct ast_node_userinfo *node_info)
 {
 	if (build_info->in_parallel_for)
+		return;
+
+	if (ast_build_n_child_loops(build) < 2)
 		return;
 
 	if (ast_schedule_dim_is_parallel(build, build_info->scop)) {
@@ -423,23 +467,6 @@ static __isl_give isl_ast_node *at_each_domain(__isl_take isl_ast_node *node,
 error:
 	ppcg_stmt_free(stmt);
 	return isl_ast_node_free(node);
-}
-
-/* Set *depth (initialized to 0 by the caller) to the maximum
- * of the schedule depths of the leaf nodes for which this function is called.
- */
-static isl_bool update_depth(__isl_keep isl_schedule_node *node, void *user)
-{
-	int *depth = user;
-	int node_depth;
-
-	if (isl_schedule_node_get_type(node) != isl_schedule_node_leaf)
-		return isl_bool_true;
-	node_depth = isl_schedule_node_get_schedule_depth(node);
-	if (node_depth > *depth)
-		*depth = node_depth;
-
-	return isl_bool_false;
 }
 
 /* This function is called for each node in a CPU AST.
