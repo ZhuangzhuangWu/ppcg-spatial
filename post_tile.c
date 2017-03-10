@@ -291,6 +291,63 @@ static int compute_spatial_locality_weight(__isl_keep isl_union_map *accesses,
 		8 * vectorizable - 16 * non_local;
 }
 
+__isl_give isl_schedule_node *compute_wavefront(
+	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
+{
+	// FIXME: Using coincidence flag for now, do we need a proper check?
+	isl_bool coincident = isl_schedule_node_band_member_get_coincident(node, 0);
+
+	if (coincident < 0)
+		return isl_schedule_node_free(node);
+	if (coincident)
+		return node;
+
+	isl_union_map *partial_schedule =
+		isl_schedule_node_band_get_partial_schedule_union_map(node);
+	isl_union_set *partial_schedule_uset =
+		isl_union_map_range(partial_schedule);
+	isl_set *partial_schedule_set =
+		isl_set_from_union_set(partial_schedule_uset);
+	isl_space *space = isl_set_get_space(partial_schedule_set);
+	isl_set_free(partial_schedule_set);
+
+	int n = isl_space_dim(space, isl_dim_set);
+	if (n <= 1) {
+		isl_space_free(space);
+		return node;
+	}
+
+	space = isl_space_map_from_domain_and_range(space, isl_space_copy(space));
+	isl_basic_map *wavefront_bmap = isl_basic_map_universe(space);
+	int i;
+
+	isl_local_space *ls = isl_basic_map_get_local_space(wavefront_bmap);
+	isl_constraint *c = isl_constraint_alloc_equality(ls);
+	c = isl_constraint_set_coefficient_si(c, isl_dim_out, i, -1);
+	for (i = 0; i < n; ++i) {
+		c = isl_constraint_set_coefficient_si(c, isl_dim_in, i, 1);
+	}
+	wavefront_bmap = isl_basic_map_add_constraint(wavefront_bmap, c);
+
+	for (i = 1; i < n; ++i) {
+		isl_local_space *ls = isl_basic_map_get_local_space(wavefront_bmap);
+		isl_constraint *c = isl_constraint_alloc_equality(ls);
+		c = isl_constraint_set_coefficient_si(c, isl_dim_out, i, -1);
+		c = isl_constraint_set_coefficient_si(c, isl_dim_in, i, 1);
+		wavefront_bmap = isl_basic_map_add_constraint(wavefront_bmap, c);
+	}
+
+	isl_union_map *wavefront_umap =
+		isl_union_map_from_basic_map(wavefront_bmap);
+	partial_schedule =
+		isl_schedule_node_band_get_partial_schedule_union_map(node);
+	partial_schedule = isl_union_map_apply_range(partial_schedule,
+		wavefront_umap);
+
+	return isl_schedule_node_band_set_partial_schedule(node,
+		isl_multi_union_pw_aff_from_union_map(partial_schedule));
+}
+
 __isl_give isl_schedule_node *tile_sink_spatially_local_loops(
 	__isl_take isl_schedule_node *node, struct ppcg_scop *scop,
 	__isl_take isl_multi_val *sizes,
@@ -349,6 +406,8 @@ __isl_give isl_schedule_node *tile_sink_spatially_local_loops(
 	isl_union_map_free(counted_accesses);
 
 	node = tile(node, sizes);
+
+	node = compute_wavefront(node, scop);
 
 	if (max_weight_member == n_member - 1)
 		return node;
