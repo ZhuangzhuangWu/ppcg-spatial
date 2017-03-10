@@ -29,7 +29,7 @@
 #include "opencl.h"
 #include "cpu.h"
 
-#define CACHE_SIZE 3
+#define CACHE_SIZE 4
 #define DISTANCE 2
 
 // #define isl_union_map_debug(a) \
