@@ -319,16 +319,15 @@ __isl_give isl_schedule_node *compute_wavefront(
 
 	space = isl_space_map_from_domain_and_range(space, isl_space_copy(space));
 	isl_basic_map *wavefront_bmap = isl_basic_map_universe(space);
-	int i;
 
 	isl_local_space *ls = isl_basic_map_get_local_space(wavefront_bmap);
 	isl_constraint *c = isl_constraint_alloc_equality(ls);
-	c = isl_constraint_set_coefficient_si(c, isl_dim_out, i, -1);
-	for (i = 0; i < n; ++i) {
-		c = isl_constraint_set_coefficient_si(c, isl_dim_in, i, 1);
-	}
+	c = isl_constraint_set_coefficient_si(c, isl_dim_out, 0, -1);
+	c = isl_constraint_set_coefficient_si(c, isl_dim_in, 0, 1);
+	c = isl_constraint_set_coefficient_si(c, isl_dim_in, 1, 1);
 	wavefront_bmap = isl_basic_map_add_constraint(wavefront_bmap, c);
 
+	int i;
 	for (i = 1; i < n; ++i) {
 		isl_local_space *ls = isl_basic_map_get_local_space(wavefront_bmap);
 		isl_constraint *c = isl_constraint_alloc_equality(ls);
