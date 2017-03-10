@@ -364,6 +364,14 @@ __isl_give isl_schedule_node *tile_sink_spatially_local_loops(
 	if (isl_schedule_node_get_type(node) != isl_schedule_node_band)
 		return node;
 
+	if (scop->options->posttile_reorder == PPCG_POSTTILE_REORDER_NONE) {
+		node = tile(node, sizes);
+		if (scop->options->openmp)
+			node = compute_wavefront(node, scop);
+		return node;
+	}
+
+
 	band_domain = isl_schedule_node_get_domain(node);
 	// we need "scheduled" accesses
 	schedule = schedule_node_band_get_ascendant_schedule(node);

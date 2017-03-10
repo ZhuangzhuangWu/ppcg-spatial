@@ -605,10 +605,7 @@ static __isl_give isl_schedule_node *tile_band(
 	space = isl_schedule_node_band_get_space(node);
 	sizes = ppcg_multi_val_from_int(space, scop->options->tile_size);
 
-	if (scop->options->posttile_reorder == PPCG_POSTTILE_REORDER_NONE)
-		return tile(node, sizes);
-	else
-		return tile_sink_spatially_local_loops(node, scop, sizes, tile);
+	return tile_sink_spatially_local_loops(node, scop, sizes, tile);
 }
 
 /* Construct schedule constraints from the dependences in ps
