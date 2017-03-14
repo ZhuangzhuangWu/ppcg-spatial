@@ -174,15 +174,11 @@ static int ast_schedule_dim_is_parallel(__isl_keep isl_ast_build *build,
  */
 static int ast_build_n_child_loops(__isl_keep isl_ast_build *build)
 {
-	isl_schedule_node *node = isl_ast_build_get_schedule_node(build);
-	isl_union_map *sched = isl_ast_build_get_schedule(build);
-	isl_union_set *sched_range = isl_union_map_range(sched);
-	isl_set *sched_set = isl_set_from_union_set(sched_range);
-	isl_space *sched_space = isl_set_get_space(sched_set);
+	isl_schedule_node *node = isl_ast_build_get_schedule_node(build);;
+	isl_space *sched_space = isl_ast_build_get_schedule_space(build);
 	int maximum_depth = 0;
 	int current_depth = isl_space_dim(sched_space, isl_dim_out);
 
-	isl_set_free(sched_set);
 	isl_space_free(sched_space);
 
 	if (isl_schedule_node_foreach_descendant_top_down(node,
