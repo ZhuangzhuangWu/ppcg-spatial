@@ -295,8 +295,11 @@ static int compute_spatial_locality_weight(__isl_keep isl_union_map *accesses,
  * where m1 and m2 are not coincident, change its partial schedule to
  * (m1+m2, m2, ..., mN) if wavefront option is set to PPCG_WAVEFRONT_SINGLE and
  * to (m1+m2+...+mN, m2, ..., mN) if it is set to PPCG_WAVEFRONT_ALL.
- * Do nothing otherwise.
  *
+ * Wavefront is not computed for CPU targets if 2 or less members are left in
+ * this band and all the nested bands because they will not be marked parallel.
+ *
+ * Does nothing if PPCG_WAVEFRONT_NONE is set in the wavefront option.
  */
 __isl_give isl_schedule_node *compute_wavefront(
 	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
@@ -305,12 +308,20 @@ __isl_give isl_schedule_node *compute_wavefront(
 	isl_bool next_coincident = isl_schedule_node_band_member_get_coincident(node, 1);
 	isl_bool permutable = isl_schedule_node_band_get_permutable(node);
 	int i, limit, n;
+	int maximum_depth, current_depth, remaining_depth;
 
 	if (coincident < 0 || next_coincident < 0)
 		return isl_schedule_node_free(node);
 	if (coincident || (!coincident && next_coincident) || !permutable)
 		return node;
 	if (scop->options->wavefront == PPCG_WAVEFRONT_NONE)
+		return node;
+
+	isl_schedule_node_foreach_descendant_top_down(node,
+		&update_depth_from_node, &maximum_depth);
+	current_depth = isl_schedule_node_get_schedule_depth(node);
+	remaining_depth = maximum_depth - current_depth - 1;
+	if (scop->options->target == PPCG_TARGET_C && remaining_depth <= 2)
 		return node;
 
 	isl_union_map *partial_schedule =
