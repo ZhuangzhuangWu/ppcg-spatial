@@ -291,15 +291,26 @@ static int compute_spatial_locality_weight(__isl_keep isl_union_map *accesses,
 		8 * vectorizable - 16 * non_local;
 }
 
+/* Given a permutable schedule node band with members (m1, m2, ..., mN),
+ * where m1 and m2 are not coincident, change its partial schedule to
+ * (m1+m2, m2, ..., mN) if wavefront option is set to PPCG_WAVEFRONT_SINGLE and
+ * to (m1+m2+...+mN, m2, ..., mN) if it is set to PPCG_WAVEFRONT_ALL.
+ * Do nothing otherwise.
+ *
+ */
 __isl_give isl_schedule_node *compute_wavefront(
 	__isl_take isl_schedule_node *node, struct ppcg_scop *scop)
 {
-	// FIXME: Using coincidence flag for now, do we need a proper check?
 	isl_bool coincident = isl_schedule_node_band_member_get_coincident(node, 0);
+	isl_bool next_coincident = isl_schedule_node_band_member_get_coincident(node, 1);
+	isl_bool permutable = isl_schedule_node_band_get_permutable(node);
+	int i, limit, n;
 
-	if (coincident < 0)
+	if (coincident < 0 || next_coincident < 0)
 		return isl_schedule_node_free(node);
-	if (coincident)
+	if (coincident || (!coincident && next_coincident) || !permutable)
+		return node;
+	if (scop->options->wavefront == PPCG_WAVEFRONT_NONE)
 		return node;
 
 	isl_union_map *partial_schedule =
@@ -311,7 +322,7 @@ __isl_give isl_schedule_node *compute_wavefront(
 	isl_space *space = isl_set_get_space(partial_schedule_set);
 	isl_set_free(partial_schedule_set);
 
-	int n = isl_space_dim(space, isl_dim_set);
+	n = isl_space_dim(space, isl_dim_set);
 	if (n <= 1) {
 		isl_space_free(space);
 		return node;
@@ -323,11 +334,17 @@ __isl_give isl_schedule_node *compute_wavefront(
 	isl_local_space *ls = isl_basic_map_get_local_space(wavefront_bmap);
 	isl_constraint *c = isl_constraint_alloc_equality(ls);
 	c = isl_constraint_set_coefficient_si(c, isl_dim_out, 0, -1);
-	c = isl_constraint_set_coefficient_si(c, isl_dim_in, 0, 1);
-	c = isl_constraint_set_coefficient_si(c, isl_dim_in, 1, 1);
+
+	if (scop->options->wavefront == PPCG_WAVEFRONT_SINGLE)
+		limit = 2;
+	else // PPCG_WAVEFRONT_ALL
+		limit = n;
+
+	for (i = 0; i < limit; ++i)
+		c = isl_constraint_set_coefficient_si(c, isl_dim_in, i, 1);
+
 	wavefront_bmap = isl_basic_map_add_constraint(wavefront_bmap, c);
 
-	int i;
 	for (i = 1; i < n; ++i) {
 		isl_local_space *ls = isl_basic_map_get_local_space(wavefront_bmap);
 		isl_constraint *c = isl_constraint_alloc_equality(ls);
