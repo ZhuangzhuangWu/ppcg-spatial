@@ -39,6 +39,13 @@ struct isl_arg_choice ppcg_posttile_reorder_choice[] = {
 	{0}
 };
 
+struct isl_arg_choice ppcg_wavefront_choice[] = {
+	{"none",	PPCG_WAVEFRONT_NONE},
+	{"single",	PPCG_WAVEFRONT_SINGLE},
+	{"all",		PPCG_WAVEFRONT_ALL},
+	{0}
+};
+
 /* Set defaults that depend on the target.
  * In particular, set --schedule-outer-coincidence iff target is a GPU.
  */
@@ -132,9 +139,12 @@ ISL_ARG_BOOL(struct ppcg_options, tile, 0, "tile", 0,
 ISL_ARG_INT(struct ppcg_options, tile_size, 'S', "tile-size", "size", 32, NULL)
 ISL_ARG_STR(struct ppcg_options, sizes, 0, "sizes", "sizes", NULL,
 	"Per kernel tile, grid and block sizes")
-ISL_ARG_CHOICE(struct ppcg_options, posttile_reorder, NULL, "posttile-reorder",
+ISL_ARG_CHOICE(struct ppcg_options, posttile_reorder, 0, "posttile-reorder",
 	ppcg_posttile_reorder_choice, PPCG_POSTTILE_REORDER_NONE,
 	"heuristic for reordering point loops after tiling")
+ISL_ARG_CHOICE(struct ppcg_options, wavefront, 0, "wavefront",
+	ppcg_wavefront_choice, PPCG_WAVEFRONT_NONE,
+	"compute wavefront schedules for tile loops")
 ISL_ARG_INT(struct ppcg_options, max_shared_memory, 0,
 	"max-shared-memory", "size", 8192, "maximal amount of shared memory")
 ISL_ARG_BOOL(struct ppcg_options, openmp, 0, "openmp", 0,

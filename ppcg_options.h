@@ -38,6 +38,11 @@ struct ppcg_options {
 	#define PPCG_POSTTILE_REORDER_SPATIAL	2
 	unsigned posttile_reorder;
 
+	#define PPCG_WAVEFRONT_NONE		0
+	#define PPCG_WAVEFRONT_SINGLE	1
+	#define PPCG_WAVEFRONT_ALL		2
+	unsigned wavefront;
+
 	/* Take advantage of private memory. */
 	int use_private_memory;
 
