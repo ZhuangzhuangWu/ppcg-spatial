@@ -11,6 +11,7 @@
 #include <isl/val.h>
 #include <isl/aff.h>
 #include <isl/set.h>
+#include <isl/schedule_node.h>
 
 #include "util.h"
 
@@ -102,4 +103,21 @@ __isl_give isl_multi_pw_aff *ppcg_size_from_extent(__isl_take isl_set *set)
 	isl_set_free(set);
 
 	return mpa;
+}
+
+/* Set *depth (initialized to 0 by the caller) to the maximum
+ * of the schedule depths of the leaf nodes for which this function is called.
+ */
+isl_bool update_depth_from_node(__isl_keep isl_schedule_node *node, void *user)
+{
+	int *depth = user;
+	int node_depth;
+
+	if (isl_schedule_node_get_type(node) != isl_schedule_node_leaf)
+		return isl_bool_true;
+	node_depth = isl_schedule_node_get_schedule_depth(node);
+	if (node_depth > *depth)
+		*depth = node_depth;
+
+	return isl_bool_false;
 }
