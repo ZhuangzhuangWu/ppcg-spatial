@@ -17,4 +17,8 @@ __isl_give isl_multi_val *ppcg_multi_val_from_int(__isl_take isl_space *space,
 	int val);
 __isl_give isl_multi_pw_aff *ppcg_size_from_extent(__isl_take isl_set *set);
 
+struct isl_schedule_node;
+isl_bool update_depth_from_node(__isl_keep struct isl_schedule_node *node,
+	void *user);
+
 #endif
