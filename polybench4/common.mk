@@ -1,10 +1,11 @@
-ROOT = /home/chandan/work/ppcg_spatial/ppcg-spatial
+ROOT=/home/chandan/work/ppcg_spatial/ppcg-spatial
+BUILD=${ROOT}		# out-of-tree build
 
-PPCG=${ROOT}/ppcg
+PPCG=${BUILD}/ppcg
 INC=${ROOT}/polybench4/utilities
 
-PPCG_EXE=${ROOT}/build2/.libs/ppcg
-LD_PATH=${ROOT}/.libs/:${ROOT}/isl/.libs:${ROOT}/pet/.libs
+PPCG_EXE=${BUILD}/.libs/ppcg
+LD_PATH=${BUILD}/.libs/:${BUILD}/isl/.libs:${BUILD}/pet/.libs
 
 PBO=${ROOT}/polybench4/utilities/polybench.o
 PBC=${ROOT}/polybench4/utilities/polybench.c
