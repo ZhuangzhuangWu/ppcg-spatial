@@ -1028,7 +1028,9 @@ isl_bool constraint_has_nonzero_coefficients(
 	for (i = 0; i < n; ++i)
 	{
 		isl_val *v = isl_constraint_get_coefficient_val(constraint, type, i);
-		if ((b = isl_val_is_zero(v)) != isl_bool_false)
+		b = isl_val_is_zero(v);
+		isl_val_free(v);
+		if (b != isl_bool_false)
 			return b;
 	}
 	return isl_bool_false;
@@ -1104,6 +1106,8 @@ isl_bool basic_map_is_uniform(__isl_keep isl_basic_map *bmap)
 		if (eq = constraint_has_nonzero_coefficients(
 				constraint, isl_dim_out) != isl_bool_true)
 			goto notfound;
+
+		isl_constraint_free(constraint);
 	}
 
 	return isl_bool_true;
@@ -2110,28 +2114,31 @@ static __isl_give isl_basic_map *remove_constant_upper_bounds(
 	int n = isl_constraint_list_n_constraint(clist);
 	int n_in = isl_basic_map_dim(bmap, isl_dim_in);
 	isl_ctx *ctx = isl_basic_map_get_ctx(bmap);
+	isl_val *large_val = isl_val_int_from_si(ctx, 100);
+	isl_constraint *c = NULL;
 	int i, j;
 
 	(void) user;
 	isl_basic_map_free(bmap);
 
 	for (i = 0; i < n; ++i) {
-		isl_constraint *c = isl_constraint_list_get_constraint(clist, i);
+		c = isl_constraint_list_get_constraint(clist, i);
 		int skip = 0;
 		for (j = 0; j < n_in; ++j) {
 			isl_bool r = isl_constraint_is_upper_bound(c, isl_dim_in, j);
 			isl_val *v;
 
 			if (r == isl_bool_error)
-				return isl_basic_map_free(result);
+				goto error;
 			if (!r)
 				continue;
 
 			v = isl_constraint_get_constant_val(c);
-			r = isl_val_gt(v, isl_val_int_from_si(ctx, 100));
+			r = isl_val_gt(v, large_val);
+			isl_val_free(v);
 
 			if (r == isl_bool_error)
-				return isl_basic_map_free(result);
+				goto error;
 			if (!r)
 				continue;
 
@@ -2145,9 +2152,16 @@ static __isl_give isl_basic_map *remove_constant_upper_bounds(
 			result = isl_basic_map_add_constraint(result, c);
 
 	}
+	isl_val_free(large_val);
 	isl_constraint_list_free(clist);
 
 	return result;
+
+error:
+	isl_constraint_free(c);
+	isl_constraint_list_free(clist);
+	isl_val_free(large_val);
+	return isl_basic_map_free(result);
 }
 
 static __isl_give isl_map *remove_constant_upper_bounds_map(
@@ -2230,6 +2244,12 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	compute_dependences(ps);
 	eliminate_dead_code(ps);
 
+	isl_union_map_free(ps->tagged_reads);
+	isl_union_map_free(ps->reads);
+	isl_union_map_free(ps->tagged_may_writes);
+	isl_union_map_free(ps->may_writes);
+	isl_union_map_free(ps->tagged_must_writes);
+	isl_union_map_free(ps->must_writes);
 	ps->tagged_reads = pet_scop_get_tagged_may_reads(scop);
 	ps->reads = pet_scop_get_may_reads(scop);
 	ps->tagged_may_writes = pet_scop_get_tagged_may_writes(scop);
