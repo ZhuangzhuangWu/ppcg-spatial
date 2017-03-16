@@ -1193,7 +1193,10 @@ static void eliminate_dead_code(struct ppcg_scop *ps)
 	}
 
 	dep = isl_union_map_copy(ps->dep_flow);
+	dep = isl_union_map_intersect_domain(dep, isl_union_set_copy(ps->domain));
+	dep = isl_union_map_intersect_range(dep, isl_union_set_copy(ps->domain));
 	dep = isl_union_map_reverse(dep);
+	live = isl_union_set_intersect(live, isl_union_set_copy(ps->domain));
 
 	for (;;) {
 		isl_union_set *extra;
@@ -2113,76 +2116,15 @@ static __isl_give isl_union_map *compute_counted_accesses(
 	return counted_accesses;
 }
 
-static __isl_give isl_basic_map *remove_constant_upper_bounds(
-	__isl_take isl_basic_map *bmap, void *user)
+__isl_give isl_union_map *tagged_gist_domain(__isl_take isl_union_map *umap,
+	__isl_take isl_union_set *uset)
 {
-	isl_constraint_list *clist = isl_basic_map_get_constraint_list(bmap);
-	isl_space *space = isl_basic_map_get_space(bmap);
-	isl_basic_map *result = isl_basic_map_universe(space);
-	int n = isl_constraint_list_n_constraint(clist);
-	int n_in = isl_basic_map_dim(bmap, isl_dim_in);
-	isl_ctx *ctx = isl_basic_map_get_ctx(bmap);
-	isl_val *large_val = isl_val_int_from_si(ctx, 100);
-	isl_constraint *c = NULL;
-	int i, j;
-
-	(void) user;
-	isl_basic_map_free(bmap);
-
-	for (i = 0; i < n; ++i) {
-		c = isl_constraint_list_get_constraint(clist, i);
-		int skip = 0;
-		for (j = 0; j < n_in; ++j) {
-			isl_bool r = isl_constraint_is_upper_bound(c, isl_dim_in, j);
-			isl_val *v;
-
-			if (r == isl_bool_error)
-				goto error;
-			if (!r)
-				continue;
-
-			v = isl_constraint_get_constant_val(c);
-			r = isl_val_gt(v, large_val);
-			isl_val_free(v);
-
-			if (r == isl_bool_error)
-				goto error;
-			if (!r)
-				continue;
-
-			skip = 1;
-			break;
-		}
-
-		if (skip)
-			isl_constraint_free(c);
-		else
-			result = isl_basic_map_add_constraint(result, c);
-
-	}
-	isl_val_free(large_val);
-	isl_constraint_list_free(clist);
-
-	return result;
-
-error:
-	isl_constraint_free(c);
-	isl_constraint_list_free(clist);
-	isl_val_free(large_val);
-	return isl_basic_map_free(result);
-}
-
-static __isl_give isl_map *remove_constant_upper_bounds_map(
-	__isl_take isl_map *map, void *user)
-{
-	return map_transform(map, &remove_constant_upper_bounds, user);
-}
-
-static __isl_give isl_union_map *remove_constant_upper_bounds_umap(
-	__isl_take isl_union_map *map)
-{
-	return union_map_transform(map, &remove_constant_upper_bounds_map,
-		NULL);
+	isl_union_set *umap_domain =
+		isl_union_map_domain(isl_union_map_copy(umap));
+	isl_union_map *umap_domain_umap = isl_union_set_unwrap(umap_domain);
+	umap_domain_umap = isl_union_map_intersect_domain(umap_domain_umap, uset);
+	uset = isl_union_map_wrap(umap_domain_umap);
+	return isl_union_map_gist_domain(umap, uset);
 }
 
 /* Extract a ppcg_scop from a pet_scop.
@@ -2219,18 +2161,24 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	}
 	ps->domain = collect_non_kill_domains(scop);
 	ps->call = collect_call_domains(scop);
-	ps->tagged_reads = remove_constant_upper_bounds_umap(
-		pet_scop_get_tagged_may_reads(scop));
-	ps->reads = remove_constant_upper_bounds_umap(
-		pet_scop_get_may_reads(scop));
-	ps->tagged_may_writes = remove_constant_upper_bounds_umap(
-		pet_scop_get_tagged_may_writes(scop));
-	ps->may_writes = remove_constant_upper_bounds_umap(
-		pet_scop_get_may_writes(scop));
-	ps->tagged_must_writes = remove_constant_upper_bounds_umap(
-		pet_scop_get_tagged_must_writes(scop));
-	ps->must_writes = remove_constant_upper_bounds_umap(
-		pet_scop_get_must_writes(scop));
+	ps->tagged_reads = tagged_gist_domain(
+		pet_scop_get_tagged_may_reads(scop),
+		isl_union_set_copy(ps->domain));
+	ps->tagged_may_writes = tagged_gist_domain(
+		pet_scop_get_tagged_may_writes(scop),
+		isl_union_set_copy(ps->domain));
+	ps->tagged_must_writes = tagged_gist_domain(
+		pet_scop_get_tagged_must_writes(scop),
+		isl_union_set_copy(ps->domain));
+	ps->reads = isl_union_map_gist_domain(
+		pet_scop_get_may_reads(scop),
+		isl_union_set_copy(ps->domain));
+	ps->may_writes = isl_union_map_gist_domain(
+		pet_scop_get_may_writes(scop),
+		isl_union_set_copy(ps->domain));
+	ps->must_writes = isl_union_map_gist_domain(
+		pet_scop_get_must_writes(scop),
+		isl_union_set_copy(ps->domain));
 	ps->tagged_must_kills = pet_scop_get_tagged_must_kills(scop);
 	ps->must_kills = pet_scop_get_must_kills(scop);
 	ps->schedule = isl_schedule_copy(scop->schedule);
