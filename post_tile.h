@@ -20,3 +20,6 @@ __isl_give isl_schedule_node *tile_sink_spatially_local_loops(
 	__isl_take isl_multi_val *sizes,
 	__isl_give isl_schedule_node *(*tile)(__isl_take isl_schedule_node *,
 		__isl_take isl_multi_val *));
+
+__isl_give isl_schedule_node *compute_wavefront(
+	__isl_take isl_schedule_node *node, struct ppcg_scop *scop);
