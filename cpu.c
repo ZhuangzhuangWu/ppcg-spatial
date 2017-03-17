@@ -704,6 +704,24 @@ static __isl_give isl_schedule *optionally_compute_schedule(void *user)
 	return compute_cpu_schedule(ps);
 }
 
+/* Transform the schedule of the band node to enable wavefront parallelism
+ * according to the "wavefront" option.
+ */
+static __isl_give isl_schedule_node *optionally_compute_wavefront(
+	__isl_take isl_schedule_node *node, void *user)
+{
+	struct ppcg_scop *ps = user;
+
+	if (ps->options->wavefront == PPCG_WAVEFRONT_NONE)
+		return node;
+	if (isl_schedule_node_get_type(node) != isl_schedule_node_band)
+		return node;
+	if (isl_schedule_node_band_n_member(node) < 2)
+		return node;
+
+	return compute_wavefront(node, ps);
+}
+
 /* Compute a schedule based on the dependences in "ps" and
  * tile it if requested by the user.
  */
@@ -722,6 +740,9 @@ static __isl_give isl_schedule *get_schedule(struct ppcg_scop *ps,
 	if (ps->options->tile)
 		schedule = isl_schedule_map_schedule_node_bottom_up(schedule,
 							&tile_band, ps);
+	else
+		schedule = isl_schedule_map_schedule_node_bottom_up(schedule,
+							&optionally_compute_wavefront, ps);
 
 	return schedule;
 }
