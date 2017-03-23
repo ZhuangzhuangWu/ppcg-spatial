@@ -2220,9 +2220,11 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_SPATIAL ||
 		options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
 		ps->retagged_dep = union_map_filter_uniform(ps->retagged_dep);
-	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
+	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL) {
 		ps->dep_flow_uniform = union_map_filter_uniform(
 			isl_union_map_copy(ps->dep_flow));
+		ps->dep_rar = union_map_filter_uniform(ps->dep_rar);
+	}
 
 	if (!ps->context || !ps->domain || !ps->call || !ps->reads ||
 	    !ps->may_writes || !ps->must_writes || !ps->tagged_must_kills ||

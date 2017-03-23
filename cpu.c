@@ -661,6 +661,8 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 		proximity = isl_union_map_copy(ps->dep_flow_uniform);
 	else
 		proximity = isl_union_map_copy(ps->dep_flow);
+	proximity = isl_union_map_union(proximity,
+		isl_union_map_copy(ps->dep_rar));
 
 	sc = isl_schedule_constraints_set_proximity(sc, proximity);
 
