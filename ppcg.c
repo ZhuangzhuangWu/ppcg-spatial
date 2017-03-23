@@ -779,6 +779,17 @@ static void compute_dependences(struct ppcg_scop *scop)
 	scop->dep_false = isl_union_flow_get_may_dependence(flow);
 	scop->dep_false = isl_union_map_coalesce(scop->dep_false);
 	isl_union_flow_free(flow);
+
+	access = isl_union_access_info_from_sink(
+		isl_union_map_copy(scop->reads));
+	access = isl_union_access_info_set_must_source(access,
+		isl_union_map_copy(scop->reads));
+	access = isl_union_access_info_set_schedule(access,
+		isl_schedule_copy(scop->schedule));
+	flow = isl_union_access_info_compute_flow(access);
+	scop->dep_rar = isl_union_flow_get_must_dependence(flow);
+	scop->dep_rar = isl_union_map_coalesce(scop->dep_rar);
+	isl_union_flow_free(flow);
 }
 
 static __isl_give isl_union_flow *compute_union_flow(
@@ -1260,6 +1271,7 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 	isl_union_map_free(ps->tagged_dep_flow);
 	isl_union_map_free(ps->dep_flow);
 	isl_union_map_free(ps->dep_false);
+	isl_union_map_free(ps->dep_rar);
 	isl_union_map_free(ps->dep_forced);
 	isl_union_map_free(ps->tagged_dep_order);
 	isl_union_map_free(ps->dep_order);

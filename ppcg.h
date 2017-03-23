@@ -103,6 +103,7 @@ struct ppcg_scop {
 	isl_union_map *dep_flow;
 	isl_union_map *tagged_dep_flow;
 	isl_union_map *dep_false;
+	isl_union_map *dep_rar;
 	isl_union_map *dep_forced;
 	isl_union_map *dep_order;
 	isl_union_map *tagged_dep_order;
