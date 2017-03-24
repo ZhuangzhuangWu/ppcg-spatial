@@ -4313,6 +4313,9 @@ static __isl_give isl_schedule_constraints *construct_schedule_constraints(
 	sc = isl_schedule_constraints_set_coincidence(sc, coincidence);
 	sc = isl_schedule_constraints_set_proximity(sc, proximity);
 
+	sc = isl_schedule_constraints_set_dep_rar(sc,
+		isl_union_map_copy(prog->scop->dep_rar));
+
 	if (prog->scop->options->debug->dump_schedule_constraints)
 		isl_schedule_constraints_dump(sc);
 	return sc;
