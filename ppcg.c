@@ -1050,6 +1050,83 @@ isl_bool basic_map_is_uniform(__isl_keep isl_basic_map *bmap)
 	n_in = isl_basic_map_n_in(bmap);
 	n_out = isl_basic_map_n_out(bmap);
 
+	if (n_in == 0 || n_out == 0)
+		return isl_bool_false;
+
+	isl_constraint_list *lst = isl_basic_map_get_constraint_list(bmap);
+	int n = isl_constraint_list_n_constraint(lst);
+	int n_nonid = 0;
+	for (i = 0; i < n; ++i) {
+		int j, m;
+		constraint = isl_constraint_list_get_constraint(lst, i);
+		if (isl_constraint_is_div_constraint(constraint) ||
+			!isl_constraint_is_equality(constraint))
+			continue;
+
+		m = isl_constraint_dim(constraint, isl_dim_in);
+		int n_nonzero = 0;
+		for (j = 0; j < m; j++) {
+			isl_val *v = isl_constraint_get_coefficient_val(constraint,
+				isl_dim_in, j);
+			if (!isl_val_is_zero(v)) {
+				n_nonzero += 1;
+			}
+			isl_val_free(v);
+		}
+		if (n_nonzero > 1) {
+			n_nonid += 1;
+			isl_constraint_free(constraint);
+			continue;
+		}
+
+		m = isl_constraint_dim(constraint, isl_dim_out);
+		for (j = 0; j < m; j++) {
+			isl_val *v = isl_constraint_get_coefficient_val(constraint,
+				isl_dim_out, j);
+			if (!isl_val_is_zero(v)) {
+				n_nonzero += 1;
+			}
+			isl_val_free(v);
+		}
+		if (n_nonzero > 2) {
+			n_nonid += 1;
+			isl_constraint_free(constraint);
+			continue;
+		}
+
+		m = isl_constraint_dim(constraint, isl_dim_param);
+		for (j = 0; j < m; j++) {
+			isl_val *v = isl_constraint_get_coefficient_val(constraint,
+				isl_dim_param, j);
+			if (!isl_val_is_zero(v)) {
+				n_nonzero += 1;
+			}
+			isl_val_free(v);
+		}
+		if (n_nonzero > 2) {
+			n_nonid += 1;
+			isl_constraint_free(constraint);
+			continue;
+		}
+
+		isl_val *v = isl_constraint_get_constant_val(constraint);
+		if (!isl_val_is_zero(v))
+			n_nonzero += 1;
+		isl_val_free(v);
+		isl_constraint_free(constraint);
+
+		if (n_nonzero > 2)
+			n_nonid += 1;
+
+		if (n_nonid > 1)
+			break;
+	}
+	isl_constraint_list_free(lst);
+
+	// return (n_nonid > 1) ? isl_bool_false : isl_bool_true;
+	if (n_nonid > 1)
+		return isl_bool_false;
+
 	// if (n_out != n_in)
 	// 	return isl_bool_false;
 
