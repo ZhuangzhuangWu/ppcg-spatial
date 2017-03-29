@@ -1350,6 +1350,7 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
 		isl_union_map_free(ps->retagged_dep);
 		isl_union_map_free(ps->counted_accesses);
+		isl_union_map_free(ps->spatial_fusion_dep);
 	}
 
 	if (ps->options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL) {
@@ -2287,6 +2288,9 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	ps->tagged_must_writes = pet_scop_get_tagged_must_writes(scop);
 	ps->must_writes = pet_scop_get_must_writes(scop);
 
+
+	ps->spatial_fusion_dep = isl_union_map_copy(ps->retagged_dep);
+	ps->spatial_fusion_dep = isl_union_map_factor_domain(ps->spatial_fusion_dep);
 	if (options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_SPATIAL ||
 		options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
 		ps->retagged_dep = union_map_filter_uniform(ps->retagged_dep);

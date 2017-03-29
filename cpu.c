@@ -655,6 +655,8 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 			isl_union_map_copy(ps->retagged_dep));
 		sc = isl_schedule_constraints_set_counted_accesses(sc,
 			isl_union_map_copy(ps->counted_accesses));
+		sc = isl_schedule_constraints_set_fusion_proximity(sc,
+			isl_union_map_copy(ps->spatial_fusion_dep));
 	}
 
 	if (ps->options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)

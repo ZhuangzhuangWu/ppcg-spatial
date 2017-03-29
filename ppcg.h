@@ -92,7 +92,7 @@ struct ppcg_scop {
 	isl_union_map *must_kills;
 
 	isl_union_map *retagged_dep;
-
+	isl_union_map *spatial_fusion_dep;
 	isl_union_map *counted_accesses;
 
 	isl_union_pw_multi_aff *tagger;
