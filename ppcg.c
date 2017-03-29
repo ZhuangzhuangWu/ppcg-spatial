@@ -992,14 +992,9 @@ static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	isl_union_map_free(spatial_reads);
 	isl_union_map_free(spatial_writes);
 
-	// Remove original dependences.
-	isl_union_map *retagged_dep = ps->retagged_dep;
-	ps->retagged_dep = isl_union_map_empty(
-		isl_union_set_get_space(ps->domain));
+	// Original dependences.
 	add_all_retagged_dependences(ps, retagged_reads,
 		retagged_must_writes, retagged_tagger);
-	retagged_dep = isl_union_map_subtract(retagged_dep, ps->retagged_dep);
-	ps->retagged_dep = retagged_dep;
 
 	// ps->retagged_dep = union_map_drop_all_inequalities(ps->retagged_dep);
 	ps->counted_accesses = isl_union_map_union(retagged_reads,
