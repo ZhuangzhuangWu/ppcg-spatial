@@ -4307,6 +4307,8 @@ static __isl_give isl_schedule_constraints *construct_schedule_constraints(
 			isl_union_map_copy(prog->scop->retagged_dep));
 		sc = isl_schedule_constraints_set_counted_accesses(sc,
 			isl_union_map_copy(prog->scop->counted_accesses));
+		sc = isl_schedule_constraints_set_fusion_proximity(sc,
+			isl_union_map_copy(prog->scop->spatial_fusion_dep));
 	}
 
 	sc = isl_schedule_constraints_set_validity(sc, validity);
