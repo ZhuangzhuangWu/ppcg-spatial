@@ -1704,97 +1704,53 @@ static __isl_give isl_union_map *map_array_accesses_to_next_elements_grouped(
 	return data.result;
 }
 
-
-/* Find a trivial access function that is linearly independent of other access
- * functions represented by equalities in the basic map "bmap".
- * Trivial access function has the form f(i_*) = i_x, i.e. features only one
- * input dimension with coefficient 1.
- *
- * In particular, assuming "bmap" contains equalities of the form o = f(i)
- * with o output dimensions and i input dimensions, take the matrix of
- * input dimension coefficients, extend it with a row containing 1 as each
- * of the coefficients in turn and check whether the new matrix has increased
- * rank.  Adding a linearly independent row will increase matrix rank by 1.
- *
- * Return an equality constraint with input dimensions that form a linearly
- * indeendent access function or NULL if there is no trivial access function
- * linearly independent of the given ones.
+/* Add outer dimensions to the access relation to make it have the same
+ * dimension as the surronding loop nest.  New accesses are linearly
+ * independent from old accesses.  Does nothing for scalar accesses or those
+ * with at least as many access dimensions as loop dimensions.
  */
-static
-__isl_give isl_constraint *find_one_independent_access(__isl_keep isl_basic_map *bmap)
+static __isl_give isl_basic_map *basic_map_extend_access(
+	__isl_take isl_basic_map *bmap)
 {
-	int n_in, i, nr, rank, prev_rank;
-	isl_local_space *local_space;
-	isl_constraint *constraint;
-
-	n_in = isl_basic_map_n_in(bmap);
-	isl_mat *eqmat = isl_basic_map_equalities_matrix(bmap,
-		isl_dim_in, isl_dim_out, isl_dim_param, isl_dim_cst, isl_dim_div);
-	eqmat = isl_mat_drop_cols(eqmat, n_in, isl_mat_cols(eqmat) - n_in);
-	prev_rank = isl_mat_rank(eqmat);
-	eqmat = isl_mat_add_zero_rows(eqmat, 1);
-
-	for (i = 0; i < n_in; ++i)
-	{
-		nr = isl_mat_rows(eqmat);
-		eqmat = isl_mat_set_element_si(eqmat, nr - 1, i, 1);
-		rank = isl_mat_rank(eqmat);
-		if (rank == prev_rank + 1)
-			break;
-
-		eqmat = isl_mat_set_element_si(eqmat, nr - 1, i, 0);
-	}
-	isl_mat_free(eqmat);
-
-	if (i == n_in)
-		return NULL;
-
-	local_space = isl_basic_map_get_local_space(bmap);
-	constraint = isl_constraint_alloc_equality(local_space);
-	constraint = isl_constraint_set_coefficient_si(constraint, isl_dim_in, i, 1);
-
-	return constraint;
-}
-
-/* Add outer dimensions to the accesses to make them have the same
- * dimensionalities as the surronding loop nests.  New accesses are
- * linearly independent from old accesses.
- * Does nothing for scalar accesses.
- */
-static
-isl_stat basic_map_extend_accesses(__isl_take isl_basic_map *bmap,
-	void *user)
-{
-	int n_in, n_out, extra_dims, i;
+	isl_mat *eq, *ineq;
 	isl_space *space;
+	int n_in, n_out, i;
 	isl_id *tuple_id;
-	isl_map *map = *(isl_map **)user;
-
-	n_out = isl_basic_map_n_out(bmap);
-	if (n_out == 0)		/* ignore scalar accesses */
-		return isl_stat_ok;
-
-	n_in = isl_basic_map_n_in(bmap);
-	extra_dims = n_in - n_out;
 
 	space = isl_basic_map_get_space(bmap);
-	tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
-	isl_space_free(space);
-	bmap = isl_basic_map_insert_dims(bmap, isl_dim_out, 0, extra_dims);
-	bmap = isl_basic_map_set_tuple_id(bmap, isl_dim_out, tuple_id);
+	n_in = isl_basic_map_n_in(bmap);
+	n_out = isl_basic_map_n_out(bmap);
+	if (n_out == 0 || n_out >= n_in)
+		return bmap;
 
-	for (i = 0; i < extra_dims; ++i)
-	{
-		isl_constraint *constraint = find_one_independent_access(bmap);
-		if (!constraint)
-		{
-			isl_basic_map_free(bmap);
-			return isl_stat_error;
-		}
-		constraint = isl_constraint_set_coefficient_si(constraint,
-			isl_dim_out, i, -1);
-		bmap = isl_basic_map_add_constraint(bmap, constraint);
-	}
+	tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
+	space = isl_space_add_dims(space, isl_dim_out, n_in - n_out);
+	space = isl_space_set_tuple_id(space, isl_dim_out, tuple_id);
+
+	eq = isl_basic_map_equalities_matrix(bmap, isl_dim_in, isl_dim_out,
+			isl_dim_param, isl_dim_cst, isl_dim_div);
+	ineq = isl_basic_map_inequalities_matrix(bmap, isl_dim_in, isl_dim_out,
+			isl_dim_param, isl_dim_cst, isl_dim_div);
+	isl_basic_map_free(bmap);
+
+	eq = isl_mat_linear_independent_complete(eq, n_in);
+
+	eq = isl_mat_insert_zero_cols(eq, n_in, n_in - n_out);
+	for (i = n_out; i < n_in; ++i)
+		eq = isl_mat_set_element_si(eq, i, n_in + (i - n_out), -1);
+	ineq = isl_mat_insert_zero_cols(ineq, n_in, n_in - n_out);
+
+	return isl_basic_map_from_constraint_matrices(space, eq, ineq,
+			isl_dim_in, isl_dim_out, isl_dim_param, isl_dim_cst,
+			isl_dim_div);
+}
+
+static isl_stat basic_map_extend_accesses_callback(
+	__isl_take isl_basic_map *bmap, void *user)
+{
+	isl_map *map = *(isl_map **)user;
+
+	bmap = basic_map_extend_access(bmap);
 
 	map = isl_map_union(map, isl_map_from_basic_map(bmap));
 	*(isl_map **)user = map;
@@ -1824,6 +1780,11 @@ isl_stat map_extend_accesses(__isl_take isl_map *map, void *user)
 	{
 		result = map;
 	}
+	else if (n_out == 0) // ignore scalars FIXME: should we filter them separately?
+	{
+		isl_map_free(map);
+		return isl_stat_ok;
+	}
 	else
 	{
 		extra_dims = n_in - n_out;
@@ -1833,7 +1794,8 @@ isl_stat map_extend_accesses(__isl_take isl_map *map, void *user)
 		space = isl_space_insert_dims(space, isl_dim_out, 0, extra_dims);
 		space = isl_space_set_tuple_id(space, isl_dim_out, tuple_id);
 		result = isl_map_empty(space);
-		r = isl_map_foreach_basic_map(map, &basic_map_extend_accesses, &result);
+		r = isl_map_foreach_basic_map(map,
+			&basic_map_extend_accesses_callback, &result);
 		isl_map_free(map);
 		if (r != isl_stat_ok)
 		{
