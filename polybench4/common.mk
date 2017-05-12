@@ -1,5 +1,5 @@
-ROOT=/home/chandan/work/ppcg_spatial/ppcg-spatial
-BUILD=${ROOT}		# out-of-tree build
+ROOT=/home/ftynse/Projects/spatial/ppcg
+BUILD=${ROOT}
 
 PPCG=${BUILD}/ppcg
 INC=${ROOT}/polybench4/utilities
@@ -75,7 +75,10 @@ ppcg_basic_tiled: ${SRC}.c
 	ppcg -I${INC} ${SRC}.c --target=c --tile -o ${SRC}.ppcg.tile.c --openmp
 
 pluto: ${SRC}.c
-	polycc ${SRC}.c -q -o ${SRC}.pluto.c --parallel
+	polycc ${SRC}.c -q -o ${SRC}.pluto.c --parallel --tile
+
+pluto_verbose: ${SRC}.c
+	polycc ${SRC}.c --parallel --tile -o ${SRC}.pluto.c
 
 pluto_tiled: ${SRC}.c
 	polycc ${SRC}.c --tile --partlbtile --intratileopt -q -o ${SRC}.pluto.tile.c --parallel
@@ -104,8 +107,8 @@ pbo: $(PBO)
 	$(CC) -O3 -fopenmp $< $(PBO) -lm -lrt -o $@
 
 %.o: %.c
-	$(CC) -O3 -fopenmp -DPOLYBENCH_TIME  -DPOLYBENCH_DUMP_ARRAYS -DMINI_DATASET -I$(INC) -c $< -o $@
-#	$(CC) -O3 -fopenmp -DPOLYBENCH_TIME  -I$(INC) -c $< -o $@
+#	$(CC) -O3 -fopenmp -DPOLYBENCH_TIME  -DPOLYBENCH_DUMP_ARRAYS -DMINI_DATASET -I$(INC) -c $< -o $@
+	$(CC) -O3 -fopenmp -DPOLYBENCH_TIME  -I$(INC) -c $< -o $@
 
 $(PBO): $(PBC)
 	$(CC) -O3 -fopenmp -DPOLYBENCH_TIME -c $< -o $@
