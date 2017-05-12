@@ -18,10 +18,13 @@ fi
 # parse arguments
 expect_list_filename=0
 suffixes=""
+first_suffix=""
+second_suffix=""
 for i in "$@"; do
     if [ $expect_list_filename -eq 1 ]; then
         list_filename="$i";
         expect_list_filename=0
+	continue;
     fi
     if [ $i = "--list" ]; then
         if [ "z$list_filename" = "z" ]; then
@@ -39,6 +42,11 @@ for i in "$@"; do
         exit 0;
     else
         suffixes="$suffixes $i";
+        if [ "z$first_suffix" = "z" ]; then
+            first_suffix="$i";
+        elif [ "z$second_suffix" = "z" ]; then
+            second_suffix="$i";
+        fi
     fi
 done
 if [ $expect_list_filename -eq 1 ]; then
@@ -83,9 +91,9 @@ function progress_bar {
 echo -n "bench "
 for suffix in $suffixes; do
     echo -n "status.${suffix} time.${suffix} "
-    if [ "z$first_suffix" == "z" ]; then
-        first_suffix="$suffix"
-    fi
+#    if [ "z$first_suffix" == "z" ]; then
+#        first_suffix="$suffix"
+#    fi
 done
 echo
 
@@ -95,6 +103,14 @@ for bench in $benchmarks; do
     fnc=${fname/.c/}
     oldpwd=`pwd`
     cd "$dname"
+    if [ "z$CMP_TWO" = "z1" -a "z$second_suffix" != "z" ]; then
+        diff -q "${fnc}.${first_suffix}.c" "${fnc}.${second_suffix}.c" > /dev/null
+        dr=$?
+        if [ $dr -eq 0 ]; then
+            cd "$oldpwd";
+            continue;
+        fi
+    fi
     echo -n "${fnc} "
     cat > Makefile <<EOF
 SRC:=$fnc

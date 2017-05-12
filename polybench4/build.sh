@@ -54,7 +54,7 @@ EOF
       elif [ $suffix = "cuda" ]; then
         PPCG_FLAGS="$flags" make spat_cuda 2>/dev/null >/dev/null
       else
-        PPCG_FLAGS="$flags -o ${fnc}.${suffix}.c" make spat_cuda 2>/dev/null >/dev/null
+        PPCG_FLAGS="$flags -o ${fnc}.${suffix}.c --save-schedule=${fnc}.${suffix}.sched.yaml" make spat_custom 2>/dev/null >/dev/null
       fi
       success=$?
 
