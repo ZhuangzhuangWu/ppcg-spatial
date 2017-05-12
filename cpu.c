@@ -559,6 +559,10 @@ static __isl_give isl_schedule_node *tile(__isl_take isl_schedule_node *node,
 {
 	node = isl_schedule_node_band_tile(node, sizes);
 	node = ppcg_set_schedule_node_type(node, isl_ast_loop_atomic);
+    node = isl_schedule_node_first_child(node);
+    if (isl_schedule_node_band_n_member(node) > 2)
+        node = ppcg_set_schedule_node_type(node, isl_ast_loop_separate);
+    node = isl_schedule_node_parent(node);
 
 	return node;
 }
