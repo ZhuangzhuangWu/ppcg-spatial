@@ -83,6 +83,9 @@ pluto_verbose: ${SRC}.c
 pluto_tiled: ${SRC}.c
 	polycc ${SRC}.c --tile --partlbtile --intratileopt -q -o ${SRC}.pluto.tile.c --parallel
 
+pluto_seq: ${SRC}.c
+	polycc --tile -o ${SRC}.pluto_seq.c $<
+
 clean:
 	rm -rf *.ppcg.c *.cu *.spatial.c *.only_cache_deps.c *.typedfuse.c *.outer.c *.single.c *.spat.c *.typedfuse.outer.c *.typedfuse.outer.single.c *.typedfuse.single.c *.cl *.hu *.default.c *.exe
 
