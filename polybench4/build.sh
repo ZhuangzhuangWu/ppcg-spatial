@@ -11,15 +11,39 @@ if [ $# -eq 0 ]; then
 fi
 
 step="one"
+expect_list=0
+list_filename="utilities/benchmark_list"
 for i in "$@"; do
+
   if [ $step = "one" ]; then
+
+    if [ "$i" = "--list" ]; then
+      if [ $expect_list -eq 0 ]; then
+        expect_list=1
+        continue;
+      else
+        echo "Unexpected --list"
+        exit 8
+      fi
+    fi
+
+    if [ $expect_list -eq 1 ]; then
+      list_filename="$i"
+      if [ ! -f "$list_filename" ]; then
+        echo "Cannot open $list_filename";
+        exit 7
+      fi
+      expect_list=2
+      continue;
+    fi
+
     step="two"
     suffix="$i"
   elif [ $step = "two" ]; then
     step="one"
     flags="$i"
 
-    for b in `cat utilities/benchmark_list`; do
+    for b in `cat $list_filename`; do
       dir=`dirname $b`;
       fn=`basename $b`;
       fnc=${fn/.c/};
@@ -45,6 +69,8 @@ EOF
         make ppcg_basic 2>/dev/null >/dev/null;
       elif [ $suffix = "pluto" ]; then
         make pluto 2>/dev/null >/dev/null;
+      elif [ $suffix = "pluto_seq" ]; then
+	make pluto_seq 2>/dev/null >/dev/null;
       elif [ $suffix = "orig" ]; then
         cp $fnc.c $fnc.orig.c > /dev/null;
 		elif [ $suffix = "prof" ]; then 
