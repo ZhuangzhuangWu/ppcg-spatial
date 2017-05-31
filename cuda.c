@@ -380,7 +380,7 @@ static void print_iterators(FILE *out, const char *type,
 			fprintf(out, ", ");
 		id = isl_id_list_get_id(ids, i);
 		fprintf(out, "%s = %s", isl_id_get_name(id),
-			cuda_dims[n - 1 - i]);
+			cuda_dims[i]);
 		isl_id_free(id);
 	}
 	fprintf(out, ";\n");
