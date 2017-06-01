@@ -38,7 +38,7 @@
 #include "cpu.h"
 
 #define CACHE_SIZE 4
-#define DISTANCE 2
+#define DISTANCE 1
 
 // #define isl_union_map_debug(a) \
 //   fprintf(stderr, "%s:%d in %s, %s\n  ", \
