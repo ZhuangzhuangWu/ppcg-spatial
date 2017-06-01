@@ -4050,6 +4050,56 @@ static __isl_give isl_schedule_node *try_hybrid_tile(struct gpu_gen *gen,
 	return node;
 }
 
+/* Given a band node "node" with multiple outer coincident members, sinks the
+ * first of them until the position of the last coincident member.
+ */
+static __isl_give isl_schedule_node *sink_outermost_parallel(
+	__isl_take isl_schedule_node *node)
+{
+	int n_member;
+	int i;
+	int last_coincident = 0;
+	int *order;
+
+	if (isl_schedule_node_get_type(node) != isl_schedule_node_band)
+		return node;
+
+	if (isl_schedule_node_band_get_permutable(node) != isl_bool_true)
+		return node;
+
+	n_member = isl_schedule_node_band_n_member(node);
+
+	if (n_member < 2)
+		return node;
+
+	for (i = 0; i < n_member; ++i) {
+		isl_bool coincident =
+			isl_schedule_node_band_member_get_coincident(node, i);
+		if (coincident < 0) {
+			isl_die(isl_schedule_node_get_ctx(node),
+				isl_error_invalid,
+				"Could not determine coincidence of a member",
+				return node);
+		}
+		if (!coincident)
+			break;
+	}
+	last_coincident = i - 1;
+
+	if (last_coincident < 1)
+		return node;
+
+	order = isl_calloc_or_die(isl_schedule_node_get_ctx(node),
+				  n_member, sizeof(int));
+	order[0] = last_coincident;
+	for (i = 1; i <= last_coincident; ++i)
+		order[i] = i - 1;
+	for (i = last_coincident + 1; i < n_member; ++i)
+		order[i] = i;
+
+	return isl_schedule_node_band_permute(node, order);
+}
+
 /* If "node" is the outermost permutable band that can be mapped to block and
  * thread identifiers in its branch (or the root of a subtree with
  * no such outer bands),
@@ -4110,6 +4160,8 @@ static __isl_give isl_schedule_node *mark_outer_permutable(
 	if (tile_len < isl_schedule_node_band_n_member(node))
 		node = isl_schedule_node_band_split(node, tile_len);
 	sizes = construct_band_tiles_sizes(node, tile_size);
+
+	node = sink_outermost_parallel(node);
 	node = tile_band(scop, node, isl_multi_val_copy(sizes));
 	node = isl_schedule_node_child(node, 0);
 	if (gen->options->unroll_gpu_tile)
