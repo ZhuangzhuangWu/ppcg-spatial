@@ -973,6 +973,8 @@ static isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *);
 static isl_union_map *map_array_accesses_to_next_elements_grouped(
 	isl_union_map *);
 static isl_map *retag_map_helper(isl_map *map, void *user);
+static __isl_give isl_union_map *const_complete_accesses(
+	__isl_take isl_union_map *);
 
 static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	__isl_give isl_union_map * (*spatial_model)(__isl_keep isl_union_map *))
@@ -986,6 +988,8 @@ static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	retagged_reads = union_map_transform(
 		isl_union_map_copy(ps->tagged_reads),
 		&retag_map_helper, "2read");
+	retagged_must_writes = const_complete_accesses(retagged_must_writes);
+	retagged_reads = const_complete_accesses(retagged_reads);
 	isl_union_pw_multi_aff *retagged_tagger =
 		compute_retagged_tagger(retagged_reads, retagged_must_writes);
 
@@ -2110,6 +2114,116 @@ __isl_give isl_union_map *tagged_gist_domain(__isl_take isl_union_map *umap,
 	umap_domain_umap = isl_union_map_intersect_domain(umap_domain_umap, uset);
 	uset = isl_union_map_wrap(umap_domain_umap);
 	return isl_union_map_gist_domain(umap, uset);
+}
+
+
+// Removes first out dimension because it will be used to put the expansion
+// constant (dimension must be added by the caller).
+// Removes last dimension because it is interesting for spatial proximity.
+// Pattern is computed for the remaining dimensions, with all tags except the
+// output tuple (array name) removed.
+// Basic maps have wrapped domains, that is [[A->ptr]->B]
+static int access_prefix_pattern_id(__isl_take isl_basic_map *bmap,
+		__isl_take __isl_give isl_basic_map_list **patterns)
+{
+	int n_out, n_in;
+	int i, n;
+	isl_id *id;
+
+	n_out = isl_basic_map_dim(bmap, isl_dim_out);
+	if (n_out < 2)
+		return -1;
+
+	n_in = isl_basic_map_dim(bmap, isl_dim_in);
+	bmap = isl_basic_map_project_out(bmap, isl_dim_in, n_in, 0); // factor_domain
+	id = isl_basic_map_get_tuple_id(bmap, isl_dim_out);
+	bmap = isl_basic_map_affine_hull(bmap);
+	bmap = isl_basic_map_project_out(bmap, isl_dim_out, n_out - 1, 1);
+	bmap = isl_basic_map_project_out(bmap, isl_dim_out, 0, 1);
+	bmap = isl_basic_map_set_tuple_id(bmap, isl_dim_out, id);
+
+	bmap = isl_basic_map_set_tuple_name(bmap, isl_dim_in, NULL);
+	n_out -= 2;
+	for (i = 0; i < n_out; ++i)
+		bmap = isl_basic_map_set_dim_name(bmap, isl_dim_out, i, NULL);
+	for (i = 0; i < n_in; ++i)
+		bmap = isl_basic_map_set_dim_name(bmap, isl_dim_in, i, NULL);
+
+	n = isl_basic_map_list_n_basic_map(*patterns);
+	for (i = 0; i < n; ++i) {
+		isl_basic_map *other =
+				isl_basic_map_list_get_basic_map(*patterns, i);
+		isl_bool b = isl_basic_map_is_equal(bmap, other);
+		if (b < 0) {
+			i = -1;
+			break;
+		}
+		if (b)
+			break;
+	}
+	if (i == n) {
+		*patterns = isl_basic_map_list_add(*patterns, bmap);
+		return i;
+	}
+
+	isl_basic_map_free(bmap);
+	return i;
+}
+
+static __isl_give isl_basic_map *basic_map_const_complete(
+	__isl_take isl_basic_map *bmap, void *user)
+{
+	isl_basic_map_list **patterns = (isl_basic_map_list **) user;
+	int pattern_id;
+	isl_id *id;
+	isl_local_space *local_space;
+	isl_constraint *cstr;
+
+	if (!patterns || !(*patterns))
+		return isl_basic_map_free(bmap);
+
+	if (isl_basic_map_dim(bmap, isl_dim_out) < 2)
+		return bmap;
+
+	pattern_id = access_prefix_pattern_id(isl_basic_map_copy(bmap),
+					      patterns);
+	if (pattern_id < 0)
+		return isl_basic_map_free(bmap);
+
+	local_space = isl_basic_map_get_local_space(bmap);
+	cstr = isl_constraint_alloc_equality(local_space);
+	cstr = isl_constraint_set_coefficient_si(cstr, isl_dim_out, 0, -1);
+	cstr = isl_constraint_set_constant_si(cstr, pattern_id);
+
+	return isl_basic_map_add_constraint(bmap, cstr);
+}
+
+static __isl_give isl_map *map_const_complete(__isl_take isl_map *map, void *user)
+{
+	isl_id *id;
+	if (isl_map_dim(map, isl_dim_out) == 0) {
+		isl_space *space = isl_map_get_space(map);
+		isl_map_free(map);
+		return isl_map_empty(space);
+	}
+
+	id = isl_map_get_tuple_id(map, isl_dim_out);
+	map = isl_map_insert_dims(map, isl_dim_out, 0, 1);
+	map = isl_map_set_tuple_id(map, isl_dim_out, id);
+	return map_transform(map, &basic_map_const_complete, user);
+}
+
+static __isl_give isl_union_map *const_complete_accesses(
+	__isl_take isl_union_map *accesses)
+{
+	isl_ctx *ctx = isl_union_map_get_ctx(accesses);
+	isl_basic_map_list *patterns = isl_basic_map_list_alloc(ctx,
+		isl_union_map_n_map(accesses));
+
+	accesses = union_map_transform(accesses, &map_const_complete, &patterns);
+	isl_basic_map_list_free(patterns);
+
+	return accesses;
 }
 
 /* Extract a ppcg_scop from a pet_scop.
