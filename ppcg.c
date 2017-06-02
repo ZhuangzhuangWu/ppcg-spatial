@@ -1027,21 +1027,23 @@ static void compute_retagged_dependences_ends_grouped(struct ppcg_scop *ps)
 		&map_array_accesses_to_next_elements_grouped);
 }
 
-isl_bool constraint_has_nonzero_coefficients(
+isl_bool constraint_has_only_zero_coefficients(
 	__isl_keep isl_constraint *constraint, enum isl_dim_type type)
 {
-	int i, n = isl_constraint_dim(constraint, type);
+	int i;
+	int n = isl_constraint_dim(constraint, type);
 	isl_bool b;
 
-	for (i = 0; i < n; ++i)
-	{
-		isl_val *v = isl_constraint_get_coefficient_val(constraint, type, i);
+	for (i = 0; i < n; ++i) {
+		isl_val *v = isl_constraint_get_coefficient_val(constraint,
+								type, i);
 		b = isl_val_is_zero(v);
 		isl_val_free(v);
-		if (b != isl_bool_false)
+		if (b != isl_bool_true)
 			return b;
 	}
-	return isl_bool_false;
+
+	return isl_bool_true;
 }
 
 isl_bool basic_map_is_uniform(__isl_keep isl_basic_map *bmap)
@@ -1049,6 +1051,7 @@ isl_bool basic_map_is_uniform(__isl_keep isl_basic_map *bmap)
 	isl_constraint *constraint;
 	int n_in, n_out, i, n_min, n_max;
 	isl_bool eq = isl_bool_error;
+	int has_one_stride = 0;
 
 	n_in = isl_basic_map_n_in(bmap);
 	n_out = isl_basic_map_n_out(bmap);
@@ -1073,7 +1076,8 @@ isl_bool basic_map_is_uniform(__isl_keep isl_basic_map *bmap)
 	n_max = n_in > n_out ? n_in : n_out;
 
 	for (i = 0; i < n_max; ++i) {
-		isl_val *vin, *vout;
+		isl_val *vin, *vout, *vcst;
+		isl_bool b;
 
 		if (i < n_min) {
 			if ((eq = isl_basic_map_has_defining_equality(bmap, isl_dim_out,
@@ -1092,6 +1096,22 @@ isl_bool basic_map_is_uniform(__isl_keep isl_basic_map *bmap)
 			if (eq != isl_bool_true)
 				goto notfound;
 
+			vcst = isl_constraint_get_constant_val(constraint);
+			b = isl_val_is_zero(vcst);
+			isl_val_free(vcst);
+			if (b == isl_bool_error) {
+				eq = isl_bool_error;
+				goto notfound;
+			}
+			if (!b) {
+				if (has_one_stride) {
+					eq = isl_bool_false;
+					goto notfound;
+				} else {
+					has_one_stride = 1;
+				}
+			}
+
 			constraint = isl_constraint_set_coefficient_si(constraint,
 				isl_dim_in, i, 0);
 			constraint = isl_constraint_set_coefficient_si(constraint,
@@ -1108,11 +1128,14 @@ isl_bool basic_map_is_uniform(__isl_keep isl_basic_map *bmap)
 						// FIXME: but shoud we account for dependences that have old "cache style", i.e. 32*i <= i' <= 32*i+31 ??  they won't fit current conditions, but may be useful (even if they are not uniform...)
 		}
 
-		if (eq = constraint_has_nonzero_coefficients(
-				constraint, isl_dim_in) != isl_bool_true)
+		eq = constraint_has_only_zero_coefficients(constraint,
+							   isl_dim_in);
+		if (eq != isl_bool_true)
 			goto notfound;
-		if (eq = constraint_has_nonzero_coefficients(
-				constraint, isl_dim_out) != isl_bool_true)
+
+		eq = constraint_has_only_zero_coefficients(constraint,
+							   isl_dim_out);
+		if (eq != isl_bool_true)
 			goto notfound;
 
 		isl_constraint_free(constraint);
