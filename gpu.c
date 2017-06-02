@@ -4072,6 +4072,9 @@ static __isl_give isl_schedule_node *sink_outermost_parallel(
 	if (n_member < 2)
 		return node;
 
+	if (isl_schedule_node_band_member_get_spatial(node, 0) != isl_bool_true)
+		return node;
+
 	for (i = 0; i < n_member; ++i) {
 		isl_bool coincident =
 			isl_schedule_node_band_member_get_coincident(node, i);
