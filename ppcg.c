@@ -976,8 +976,8 @@ static isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *);
 static isl_union_map *map_array_accesses_to_next_elements_grouped(
 	isl_union_map *);
 static isl_map *retag_map_helper(isl_map *map, void *user);
-static __isl_give isl_union_map *const_complete_accesses(
-	__isl_take isl_union_map *);
+static isl_stat const_complete_accesses(
+	isl_union_map **, isl_union_map **);
 
 static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	__isl_give isl_union_map * (*spatial_model)(__isl_keep isl_union_map *))
@@ -1000,8 +1000,7 @@ static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	// Spatial locality dependences ()
 	spatial_reads = spatial_model(retagged_reads);
 	spatial_writes = spatial_model(retagged_must_writes);
-	spatial_reads = const_complete_accesses(spatial_reads);
-	spatial_writes = const_complete_accesses(spatial_writes);
+	const_complete_accesses(&spatial_reads, &spatial_writes);
 	add_all_retagged_dependences(ps, spatial_reads, spatial_writes,
 		retagged_tagger);
 	isl_union_map_free(spatial_reads);
@@ -2216,17 +2215,31 @@ static __isl_give isl_map *map_const_complete(__isl_take isl_map *map, void *use
 	return map_transform(map, &basic_map_const_complete, user);
 }
 
-static __isl_give isl_union_map *const_complete_accesses(
-	__isl_take isl_union_map *accesses)
+static isl_stat const_complete_accesses(
+	__isl_take __isl_give isl_union_map **reads,
+	__isl_take __isl_give isl_union_map **writes)
 {
-	isl_ctx *ctx = isl_union_map_get_ctx(accesses);
-	isl_basic_map_list *patterns = isl_basic_map_list_alloc(ctx,
-		isl_union_map_n_map(accesses));
+	isl_ctx *ctx;
 
-	accesses = union_map_transform(accesses, &map_const_complete, &patterns);
+	if (!reads || !writes)
+		return isl_stat_error;
+
+	ctx = isl_union_map_get_ctx(*reads);
+	isl_basic_map_list *patterns = isl_basic_map_list_alloc(ctx,
+		isl_union_map_n_map(*reads) + isl_union_map_n_map(*writes));
+	if (!patterns)
+		return isl_stat_error;
+
+	*reads = union_map_transform(*reads, &map_const_complete, &patterns);
+	*writes = union_map_transform(*writes, &map_const_complete, &patterns);
 	isl_basic_map_list_free(patterns);
 
-	return accesses;
+	if (!*reads || !*writes) {
+		*reads = isl_union_map_free(*reads);
+		*writes = isl_union_map_free(*writes);
+		return isl_stat_error;
+	}
+	return isl_stat_ok;
 }
 
 /* Extract a ppcg_scop from a pet_scop.
