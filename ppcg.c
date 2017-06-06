@@ -1762,7 +1762,8 @@ static __isl_give isl_basic_map *basic_map_extend_access(
 			isl_dim_param, isl_dim_cst, isl_dim_div);
 	isl_basic_map_free(bmap);
 
-	eq = isl_mat_linear_independent_complete(eq, n_in);
+//	eq = isl_mat_linear_independent_complete(eq, n_in);
+	eq = isl_mat_linear_independent_fullrank(eq);
 
 	eq = isl_mat_insert_zero_cols(eq, n_in, n_in - n_out);
 	for (i = n_out; i < n_in; ++i)
