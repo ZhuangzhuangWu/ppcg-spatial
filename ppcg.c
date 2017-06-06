@@ -991,8 +991,6 @@ static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	retagged_reads = union_map_transform(
 		isl_union_map_copy(ps->tagged_reads),
 		&retag_map_helper, "2read");
-	retagged_must_writes = const_complete_accesses(retagged_must_writes);
-	retagged_reads = const_complete_accesses(retagged_reads);
 	isl_union_pw_multi_aff *retagged_tagger =
 		compute_retagged_tagger(retagged_reads, retagged_must_writes);
 
@@ -1002,6 +1000,8 @@ static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	// Spatial locality dependences ()
 	spatial_reads = spatial_model(retagged_reads);
 	spatial_writes = spatial_model(retagged_must_writes);
+	spatial_reads = const_complete_accesses(spatial_reads);
+	spatial_writes = const_complete_accesses(spatial_writes);
 	add_all_retagged_dependences(ps, spatial_reads, spatial_writes,
 		retagged_tagger);
 	isl_union_map_free(spatial_reads);
