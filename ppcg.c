@@ -1666,9 +1666,9 @@ static isl_stat array_access_to_next_elements_grouped(
 		return isl_stat_ok;
 	}
 
-	separate_by_full_ranked(map, &full_ranked, &non_full_ranked);
-	isl_map_free(map);
-	map = full_ranked;
+//	separate_by_full_ranked(map, &full_ranked, &non_full_ranked);
+//	isl_map_free(map);
+//	map = full_ranked;
 
 	space = isl_map_get_space(map);
 	space = isl_space_range(space);
@@ -1735,8 +1735,10 @@ static isl_stat array_access_to_next_elements_grouped(
 
 	mapped = isl_map_apply_range(isl_map_copy(map), mapper);
 	mapped = isl_map_intersect_range(mapped, isl_map_range(isl_map_copy(map)));
+	// FIXME: ^ we should intersect with all possible accesses to the same array
+	// at the union_map level?  range->set_coalesce->intersect_range
 	mapped = isl_map_union(mapped, map);
-	mapped = isl_map_union(mapped, non_full_ranked);
+//	mapped = isl_map_union(mapped, non_full_ranked);
 	data->result = isl_union_map_add_map(data->result, mapped);
 	if (!data->result)
 		return isl_stat_error;
