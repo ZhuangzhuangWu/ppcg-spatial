@@ -968,6 +968,28 @@ static __isl_give isl_union_map *union_map_drop_all_inequalities(
 	return union_map_transform(umap, &map_drop_all_inequalities_helper, NULL);
 }
 
+static __isl_give isl_map *filter_scalar(__isl_take isl_map *map, void *user)
+{
+	isl_space *space;
+
+	(void) user;
+
+	if (isl_map_dim(map, isl_dim_out) != 0)
+		return map;
+
+	space = isl_map_get_space(map);
+	isl_map_free(map);
+	map = isl_map_empty(space);
+	return map;
+}
+
+static inline __isl_give isl_union_map *filter_scalar_accesses(
+	__isl_take isl_union_map *accesses)
+{
+	return union_map_transform(accesses, &filter_scalar, NULL);
+}
+
+
 static isl_union_map *map_array_accesses_to_next_elements(isl_union_map *);
 static isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *);
 static isl_union_map *map_array_accesses_to_next_elements_grouped(
@@ -997,9 +1019,13 @@ static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	// Spatial locality dependences ()
 	spatial_reads = isl_union_map_copy(retagged_reads);
 	spatial_writes = isl_union_map_copy(retagged_must_writes);
+	spatial_reads = filter_scalar_accesses(spatial_reads);
+	spatial_writes = filter_scalar_accesses(spatial_writes);
 	const_complete_accesses(&spatial_reads, &spatial_writes);
+
 	spatial_reads = spatial_model(spatial_reads);
 	spatial_writes = spatial_model(spatial_writes);
+
 	add_all_retagged_dependences(ps, spatial_reads, spatial_writes,
 		retagged_tagger);
 	isl_union_map_free(spatial_reads);
@@ -1727,15 +1753,16 @@ static __isl_give isl_union_map *map_array_accesses_to_next_elements_grouped(
 	if (isl_union_map_foreach_map(access,
 			&array_access_to_next_elements_grouped, &data) < 0)
 		data.result = isl_union_map_free(data.result);
-	isl_union_map_free(access);
 
 	return data.result;
 }
 
 /* Add outer dimensions to the access relation to make it have the same
  * dimension as the surronding loop nest.  New accesses are linearly
- * independent from old accesses.  Does nothing for scalar accesses or those
- * with at least as many access dimensions as loop dimensions.
+ * independent from old accesses.
+ *
+ * Scalar accesses, i.e. those with zero outer dimensions cannot be expanded.
+ * In this case, NULL is returned.
  */
 static __isl_give isl_basic_map *basic_map_extend_access(
 	__isl_take isl_basic_map *bmap)
@@ -1748,8 +1775,8 @@ static __isl_give isl_basic_map *basic_map_extend_access(
 	space = isl_basic_map_get_space(bmap);
 	n_in = isl_basic_map_dim(bmap, isl_dim_in);
 	n_out = isl_basic_map_dim(bmap, isl_dim_out);
-	if (n_out == 0 || n_out >= n_in)
-		return bmap;
+	if (n_out == 0)
+		return isl_basic_map_free(bmap);
 
 	eq = isl_basic_map_equalities_matrix(bmap, isl_dim_in, isl_dim_out,
 			isl_dim_param, isl_dim_cst, isl_dim_div);
@@ -1785,7 +1812,7 @@ static __isl_give isl_basic_map *basic_map_extend_access(
 			isl_dim_div);
 }
 
-static isl_stat basic_map_extend_accesses_callback(
+static isl_stat basic_map_extend_accesses_callback_old(
 	__isl_take isl_basic_map *bmap, void *user)
 {
 	isl_map *map = *(isl_map **)user;
@@ -1797,8 +1824,82 @@ static isl_stat basic_map_extend_accesses_callback(
 	return isl_stat_ok;
 }
 
+static isl_stat basic_map_extend_accesses_callback(
+	__isl_take isl_basic_map *bmap, void *user)
+{
+	isl_basic_map_list **extended_bmaps = (isl_basic_map_list **) user;
+	bmap = basic_map_extend_access(bmap);
+	if (!bmap)
+		return isl_stat_error;
+	*extended_bmaps = isl_basic_map_list_add(*extended_bmaps, bmap);
+	if (!*extended_bmaps)
+		return isl_stat_error;
+	return isl_stat_ok;
+}
+
+static __isl_give isl_map *map_extend_accesses(__isl_take isl_map *map,
+					       void *user)
+{
+	(void) user;
+	isl_basic_map_list *extended_bmaps;
+	int i, n, max_n_out;
+	isl_ctx *ctx = isl_map_get_ctx(map);
+	isl_space *space = isl_map_get_space(map);
+	int n_out;
+	isl_id *id;
+	isl_stat r;
+
+	extended_bmaps = isl_basic_map_list_alloc(ctx,
+				isl_map_n_basic_map(map));
+	r = isl_map_foreach_basic_map(map,
+		&basic_map_extend_accesses_callback, &extended_bmaps);
+	map = isl_map_free(map);
+	if (r < 0)
+		return map;
+
+	max_n_out = 0;
+	n = isl_basic_map_list_n_basic_map(extended_bmaps);
+	for (i = 0; i < n; ++i) {
+		isl_basic_map *bmap;
+
+		bmap = isl_basic_map_list_get_basic_map(extended_bmaps, i);
+		n_out = isl_basic_map_dim(bmap, isl_dim_out);
+		if (n_out > max_n_out)
+			max_n_out = n_out;
+		isl_basic_map_free(bmap);
+	}
+
+	n_out = isl_space_dim(space, isl_dim_out);
+	if (max_n_out > n_out) {
+		id = isl_space_get_tuple_id(space, isl_dim_out);
+		space = isl_space_insert_dims(space, isl_dim_out,
+					      0, max_n_out - n_out);
+		space = isl_space_set_tuple_id(space, isl_dim_out, id);
+	}
+	map = isl_map_empty(space);
+
+	for (i = 0; i < n; ++i) {
+		isl_basic_map *bmap;
+
+		bmap = isl_basic_map_list_get_basic_map(extended_bmaps, i);
+		n_out = isl_basic_map_dim(bmap, isl_dim_out);
+		if (n_out < max_n_out) {
+			id = isl_basic_map_get_tuple_id(bmap, isl_dim_out);
+			bmap = isl_basic_map_insert_dims(bmap, isl_dim_out,
+						0, max_n_out - n_out);
+			bmap = isl_basic_map_set_tuple_id(
+						bmap, isl_dim_out, id);
+		}
+		map = isl_map_union(map, isl_map_from_basic_map(bmap));
+	}
+	isl_basic_map_list_free(extended_bmaps);
+
+	return map;
+}
+
+
 static
-isl_stat map_extend_accesses(__isl_take isl_map *map, void *user)
+isl_stat map_extend_accesses_old(__isl_take isl_map *map, void *user)
 {
 	isl_stat r;
 	isl_map *result;
@@ -1835,7 +1936,7 @@ isl_stat map_extend_accesses(__isl_take isl_map *map, void *user)
 		space = isl_space_set_tuple_id(space, isl_dim_out, tuple_id);
 		result = isl_map_empty(space);
 		r = isl_map_foreach_basic_map(map,
-			&basic_map_extend_accesses_callback, &result);
+			&basic_map_extend_accesses_callback_old, &result);
 		isl_map_free(map);
 		if (r != isl_stat_ok)
 		{
@@ -1848,7 +1949,14 @@ isl_stat map_extend_accesses(__isl_take isl_map *map, void *user)
 	return isl_stat_ok;
 }
 
-static __isl_give isl_union_map *union_map_extend_accesses(__isl_keep isl_union_map *umap)
+static __isl_give isl_union_map *union_map_extend_accesses(
+	__isl_take isl_union_map *accesses)
+{
+	return union_map_transform(accesses,
+				   &map_extend_accesses, NULL);
+}
+
+static __isl_give isl_union_map *union_map_extend_accesses_old(__isl_keep isl_union_map *umap)
 {
 	isl_union_map *result;
 	isl_stat r;
@@ -1857,7 +1965,7 @@ static __isl_give isl_union_map *union_map_extend_accesses(__isl_keep isl_union_
 		return NULL;
 
 	result = isl_union_map_empty(isl_union_map_get_space(umap));
-	r = isl_union_map_foreach_map(umap, &map_extend_accesses, &result);
+	r = isl_union_map_foreach_map(umap, &map_extend_accesses_old, &result);
 	if (r != isl_stat_ok)
 	{
 		isl_union_map_free(result);
