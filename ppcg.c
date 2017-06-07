@@ -998,9 +998,11 @@ static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 		isl_union_set_get_space(ps->domain));
 
 	// Spatial locality dependences ()
-	spatial_reads = spatial_model(retagged_reads);
-	spatial_writes = spatial_model(retagged_must_writes);
+	spatial_reads = isl_union_map_copy(retagged_reads);
+	spatial_writes = isl_union_map_copy(retagged_must_writes);
 	const_complete_accesses(&spatial_reads, &spatial_writes);
+	spatial_reads = spatial_model(spatial_reads);
+	spatial_writes = spatial_model(spatial_writes);
 	add_all_retagged_dependences(ps, spatial_reads, spatial_writes,
 		retagged_tagger);
 	isl_union_map_free(spatial_reads);
