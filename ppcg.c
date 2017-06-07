@@ -1744,28 +1744,39 @@ static __isl_give isl_basic_map *basic_map_extend_access(
 	isl_id *tuple_id;
 
 	space = isl_basic_map_get_space(bmap);
-	n_in = isl_basic_map_n_in(bmap);
-	n_out = isl_basic_map_n_out(bmap);
+	n_in = isl_basic_map_dim(bmap, isl_dim_in);
+	n_out = isl_basic_map_dim(bmap, isl_dim_out);
 	if (n_out == 0 || n_out >= n_in)
 		return bmap;
-
-	tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
-	space = isl_space_add_dims(space, isl_dim_out, n_in - n_out);
-	space = isl_space_set_tuple_id(space, isl_dim_out, tuple_id);
 
 	eq = isl_basic_map_equalities_matrix(bmap, isl_dim_in, isl_dim_out,
 			isl_dim_param, isl_dim_cst, isl_dim_div);
 	ineq = isl_basic_map_inequalities_matrix(bmap, isl_dim_in, isl_dim_out,
 			isl_dim_param, isl_dim_cst, isl_dim_div);
+
+	int n_row;
+	n_row = isl_mat_rows(eq);
+	eq = isl_mat_linear_independent_fullrank(eq, n_in);
+	int extra_rows;
+	extra_rows = isl_mat_rows(eq) - n_row;
+	if (extra_rows == 0) {
+		isl_mat_free(eq);
+		isl_mat_free(ineq);
+		return bmap;
+	}
 	isl_basic_map_free(bmap);
 
-//	eq = isl_mat_linear_independent_complete(eq, n_in);
-	eq = isl_mat_linear_independent_fullrank(eq);
+	// offsets existing n_out by extra_row, and assings newly created lines to
+	// new output dims
+	eq = isl_mat_insert_zero_cols(eq, n_in, extra_rows);
+	for (i = 0; i < extra_rows; ++i)
+		eq = isl_mat_set_element_si(eq, n_row + i, n_in + i, -1);
 
-	eq = isl_mat_insert_zero_cols(eq, n_in, n_in - n_out);
-	for (i = n_out; i < n_in; ++i)
-		eq = isl_mat_set_element_si(eq, i, n_in + (i - n_out), -1);
-	ineq = isl_mat_insert_zero_cols(ineq, n_in, n_in - n_out);
+	ineq = isl_mat_insert_zero_cols(ineq, n_in, extra_rows);
+
+	tuple_id = isl_space_get_tuple_id(space, isl_dim_out);
+	space = isl_space_add_dims(space, isl_dim_out, extra_rows);
+	space = isl_space_set_tuple_id(space, isl_dim_out, tuple_id);
 
 	return isl_basic_map_from_constraint_matrices(space, eq, ineq,
 			isl_dim_in, isl_dim_out, isl_dim_param, isl_dim_cst,
