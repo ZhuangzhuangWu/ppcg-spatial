@@ -659,12 +659,16 @@ static __isl_give isl_schedule_constraints *construct_cpu_schedule_constraints(
 			isl_union_map_copy(ps->retagged_dep));
 		sc = isl_schedule_constraints_set_counted_accesses(sc,
 			isl_union_map_copy(ps->counted_accesses));
+
+		proximity = isl_union_map_copy(ps->retagged_unfiltered_dep);
+	} else {
+		proximity = isl_union_map_copy(ps->dep_flow);
 	}
 
-	if (ps->options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
-		proximity = isl_union_map_copy(ps->dep_flow_uniform);
-	else
-		proximity = isl_union_map_copy(ps->dep_flow);
+//	if (ps->options->remove_nonuniform == PPCG_REMOVE_NONUNIFORM_ALL)
+//		proximity = isl_union_map_copy(ps->dep_flow_uniform);
+//	else
+//		proximity = isl_union_map_copy(ps->dep_flow);
 
 	sc = isl_schedule_constraints_set_proximity(sc, proximity);
 

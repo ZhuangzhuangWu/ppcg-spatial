@@ -391,12 +391,15 @@ static void compute_tagger(struct ppcg_scop *ps)
 }
 
 static __isl_give isl_union_pw_multi_aff *compute_retagged_tagger(
-	__isl_keep isl_union_map *reads, __isl_keep isl_union_map *must_writes)
+	__isl_keep isl_union_map *reads, __isl_keep isl_union_map *must_writes,
+	__isl_keep isl_union_map *may_writes, __isl_keep isl_union_map *kills)
 {
 	isl_union_map *tagged;
 
 	tagged = isl_union_map_copy(reads);
 	tagged = isl_union_map_union(tagged, isl_union_map_copy(must_writes));
+	tagged = isl_union_map_union(tagged, isl_union_map_copy(may_writes));
+	tagged = isl_union_map_union(tagged, isl_union_map_copy(kills));
 	tagged = isl_union_map_universe(tagged);
 	tagged = isl_union_set_unwrap(isl_union_map_domain(tagged));
 	return isl_union_map_domain_map_union_pw_multi_aff(tagged);
@@ -989,6 +992,53 @@ static inline __isl_give isl_union_map *filter_scalar_accesses(
 	return union_map_transform(accesses, &filter_scalar, NULL);
 }
 
+static void compute_tagged_proximity_dependences(struct ppcg_scop *ps,
+	__isl_keep isl_union_map *reads, __isl_keep isl_union_map *must_writes,
+	__isl_keep isl_union_map *may_writes, __isl_keep isl_union_map *kills,
+	__isl_keep isl_union_pw_multi_aff *tagger)
+{
+	isl_schedule *schedule = isl_schedule_copy(ps->schedule);
+	isl_union_map *may_source, *must_source;
+	isl_union_access_info *ai;
+	isl_union_flow *flow;
+	isl_union_map *dep;
+
+	schedule = isl_schedule_pullback_union_pw_multi_aff(schedule,
+				isl_union_pw_multi_aff_copy(tagger));
+
+	// RAW (flow)
+	must_source = isl_union_map_union(isl_union_map_copy(must_writes),
+					  isl_union_map_copy(kills));
+	ai = isl_union_access_info_from_sink(isl_union_map_copy(reads));
+	ai = isl_union_access_info_set_must_source(ai, must_source);
+	ai = isl_union_access_info_set_may_source(ai,
+				isl_union_map_copy(may_writes));
+	ai = isl_union_access_info_set_schedule(ai,
+						isl_schedule_copy(schedule));
+	flow = isl_union_access_info_compute_flow(ai);
+	dep = isl_union_flow_get_may_dependence(flow);
+	dep = isl_union_map_subtract_domain(dep,
+			isl_union_map_domain(isl_union_map_copy(kills)));
+	isl_union_flow_free(flow);
+
+	// WAR and WAW (false)
+	// TODO: why don't we add kills as must-sources here?
+//	may_source = isl_union_map_union(isl_union_map_copy(may_writes),
+//					 isl_union_map_copy(reads));
+//	ai = isl_union_access_info_from_sink(isl_union_map_copy(may_writes));
+//	ai = isl_union_access_info_set_must_source(ai,
+//			isl_union_map_copy(must_writes));
+//	ai = isl_union_access_info_set_may_source(ai, may_source);
+//	ai = isl_union_access_info_set_schedule(ai, schedule);
+
+//	flow = isl_union_access_info_compute_flow(ai);
+//	dep = isl_union_map_union(dep,
+//			isl_union_flow_get_may_dependence(flow));
+//	dep = isl_union_map_coalesce(dep);
+//	isl_union_flow_free(flow);
+
+	ps->retagged_unfiltered_dep = dep;
+}
 
 static isl_union_map *map_array_accesses_to_next_elements(isl_union_map *);
 static isl_union_map *map_array_accesses_to_cache_blocks(isl_union_map *);
@@ -1004,14 +1054,32 @@ static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	isl_union_map *spatial_reads, *spatial_writes;
 	isl_union_map *retagged_reads, *retagged_must_writes;
 
+	isl_union_map *retagged_may_writes, *retagged_kills;
+
 	retagged_must_writes = union_map_transform(
 		isl_union_map_copy(ps->tagged_must_writes),
-		&retag_map_helper, "1must_write");
+		&retag_map_helper, "1write");
 	retagged_reads = union_map_transform(
 		isl_union_map_copy(ps->tagged_reads),
 		&retag_map_helper, "2read");
+
+
+	// For temporal proximity dependences
+	retagged_may_writes = union_map_transform(
+		isl_union_map_copy(ps->tagged_may_writes),
+		&retag_map_helper, "1write");
+	retagged_kills = union_map_transform(
+		isl_union_map_copy(ps->tagged_must_kills),
+		&retag_map_helper, "3kill");
+
 	isl_union_pw_multi_aff *retagged_tagger =
-		compute_retagged_tagger(retagged_reads, retagged_must_writes);
+		compute_retagged_tagger(retagged_reads, retagged_must_writes,
+					retagged_may_writes, retagged_kills);
+
+	// Temporal Proximity dependences
+	compute_tagged_proximity_dependences(ps, retagged_reads, retagged_must_writes,
+		retagged_may_writes, retagged_kills, retagged_tagger);
+	isl_union_map_free(retagged_kills);
 
 	ps->retagged_dep = isl_union_map_empty(
 		isl_union_set_get_space(ps->domain));
@@ -1038,6 +1106,8 @@ static void compute_retagged_dependences_model(struct ppcg_scop *ps,
 	// ps->retagged_dep = union_map_drop_all_inequalities(ps->retagged_dep);
 	ps->counted_accesses = isl_union_map_union(retagged_reads,
 		retagged_must_writes);
+	ps->counted_accesses = isl_union_map_union(ps->counted_accesses,
+		retagged_may_writes);
 }
 
 static void compute_retagged_dependences(struct ppcg_scop *ps)
@@ -1326,8 +1396,8 @@ static void *ppcg_scop_free(struct ppcg_scop *ps)
 	isl_union_map_free(ps->tagged_dep_order);
 	isl_union_map_free(ps->dep_order);
 
-	if (ps->options->spatial_model == PPCG_SPATIAL_MODEL_GROUPS ||
-		ps->options->spatial_model == PPCG_SPATIAL_MODEL_ENDS) {
+	if (ps->options->spatial_model != PPCG_SPATIAL_MODEL_NONE) {
+		isl_union_map_free(ps->retagged_unfiltered_dep);
 		isl_union_map_free(ps->retagged_dep);
 		isl_union_map_free(ps->counted_accesses);
 	}
