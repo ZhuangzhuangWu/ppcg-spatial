@@ -92,6 +92,7 @@ struct ppcg_scop {
 	isl_union_map *must_kills;
 
 	isl_union_map *retagged_dep;
+	isl_union_map *retagged_unfiltered_dep;
 
 	isl_union_map *counted_accesses;
 
