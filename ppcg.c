@@ -1025,10 +1025,11 @@ static void compute_tagged_proximity_dependences(struct ppcg_scop *ps,
 			isl_union_map_domain(isl_union_map_copy(kills)));
 	isl_union_flow_free(flow);
 
-	isl_union_map *c = isl_union_map_copy(dep);
+//	isl_union_map *c = isl_union_map_copy(dep);
 //	isl_union_map_dump(dep);
 //	dep = union_map_filter_uniform(dep);
 //	fprintf(stderr, "%d\n", isl_union_map_is_equal(dep, c));
+	dep = union_map_filter_uniform(dep);
 //	isl_union_map_dump(dep);
 
 //	// RAW + const-completion (self-deps)
@@ -1042,7 +1043,6 @@ static void compute_tagged_proximity_dependences(struct ppcg_scop *ps,
 						isl_schedule_copy(schedule));
 	flow = isl_union_access_info_compute_flow(ai);
 	dep = isl_union_map_union(dep, isl_union_flow_get_must_dependence(flow));
-	dep = union_map_filter_uniform(dep);
 	isl_union_flow_free(flow);
 //	isl_union_map_dump(dep);
 
