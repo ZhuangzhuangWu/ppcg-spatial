@@ -992,6 +992,10 @@ static inline __isl_give isl_union_map *filter_scalar_accesses(
 	return union_map_transform(accesses, &filter_scalar, NULL);
 }
 
+static isl_stat const_complete_accesses(isl_union_map **, isl_union_map **);
+__isl_give isl_union_map *union_map_filter_uniform(
+	__isl_take isl_union_map *umap);
+
 static void compute_tagged_proximity_dependences(struct ppcg_scop *ps,
 	__isl_keep isl_union_map *reads, __isl_keep isl_union_map *must_writes,
 	__isl_keep isl_union_map *may_writes, __isl_keep isl_union_map *kills,
@@ -1020,6 +1024,27 @@ static void compute_tagged_proximity_dependences(struct ppcg_scop *ps,
 	dep = isl_union_map_subtract_domain(dep,
 			isl_union_map_domain(isl_union_map_copy(kills)));
 	isl_union_flow_free(flow);
+
+	isl_union_map *c = isl_union_map_copy(dep);
+//	isl_union_map_dump(dep);
+//	dep = union_map_filter_uniform(dep);
+//	fprintf(stderr, "%d\n", isl_union_map_is_equal(dep, c));
+//	isl_union_map_dump(dep);
+
+//	// RAW + const-completion (self-deps)
+	isl_union_map *cst_reads = isl_union_map_copy(reads);
+	isl_union_map *cst_writes = isl_union_map_copy(must_writes);
+	const_complete_accesses(&cst_reads, &cst_writes); // FIXME: use may_writes and kills
+	ai = isl_union_access_info_from_sink(cst_reads);
+	ai = isl_union_access_info_set_must_source(ai, isl_union_map_copy(cst_writes));
+	ai = isl_union_access_info_set_may_source(ai, cst_writes);
+	ai = isl_union_access_info_set_schedule(ai,
+						isl_schedule_copy(schedule));
+	flow = isl_union_access_info_compute_flow(ai);
+	dep = isl_union_map_union(dep, isl_union_flow_get_must_dependence(flow));
+	dep = union_map_filter_uniform(dep);
+	isl_union_flow_free(flow);
+//	isl_union_map_dump(dep);
 
 	// WAR and WAW (false)
 	// TODO: why don't we add kills as must-sources here?
@@ -1257,7 +1282,18 @@ __isl_give isl_basic_map *basic_map_filter_uniform(
 {
 	isl_bool uniform;
 
-	(void) user;
+	isl_space *space = isl_basic_map_get_space(bmap);
+	space = isl_space_zip(space);
+	space = isl_space_domain(space);
+	space = isl_space_unwrap(space);
+	isl_id *id1 = isl_space_get_tuple_id(space, isl_dim_in);
+	isl_id *id2 = isl_space_get_tuple_id(space, isl_dim_out);
+	int same = id1 == id2;
+	isl_id_free(id1);
+	isl_id_free(id2);
+	if (!same) {
+		return bmap;
+	}
 
 	uniform = basic_map_is_uniform(bmap);
 	if (uniform == isl_bool_error) {
@@ -1274,7 +1310,8 @@ __isl_give isl_basic_map *basic_map_filter_uniform(
 __isl_give isl_map *map_filter_uniform_helper(__isl_take isl_map *map,
 	void *user)
 {
-	return map_transform(map, &basic_map_filter_uniform, user);
+	map = map_transform(map, &basic_map_filter_uniform, user);
+	return map;
 }
 
 __isl_give isl_union_map *union_map_filter_uniform(
@@ -2322,6 +2359,7 @@ static int access_prefix_pattern_id(__isl_take isl_basic_map *bmap,
 	int n_out, n_in;
 	int i, n;
 	isl_id *id;
+	isl_constraint *cstr;
 
 	n_out = isl_basic_map_dim(bmap, isl_dim_out);
 	if (n_out < 2)
@@ -2329,14 +2367,25 @@ static int access_prefix_pattern_id(__isl_take isl_basic_map *bmap,
 
 	n_in = isl_basic_map_dim(bmap, isl_dim_in);
 	bmap = isl_basic_map_project_out(bmap, isl_dim_in, n_in, 0); // factor_domain
-	id = isl_basic_map_get_tuple_id(bmap, isl_dim_out);
 	bmap = isl_basic_map_affine_hull(bmap);
-	bmap = isl_basic_map_project_out(bmap, isl_dim_out, n_out - 1, 1);
+
+	if (isl_basic_map_has_defining_equality(bmap, isl_dim_out,
+				n_out - 1, &cstr) != isl_bool_true)
+		isl_die(isl_basic_map_get_ctx(bmap),
+			isl_error_internal,
+			"no equality found for the last access dimension",
+			return -1);
+	bmap = isl_basic_map_drop_constraints_involving_dims(
+			bmap, isl_dim_out, n_out - 1, 1);
+	cstr = isl_constraint_set_constant_si(cstr, 0);
+	bmap = isl_basic_map_add_constraint(bmap, cstr);
+
+	id = isl_basic_map_get_tuple_id(bmap, isl_dim_out);
 	bmap = isl_basic_map_project_out(bmap, isl_dim_out, 0, 1);
 	bmap = isl_basic_map_set_tuple_id(bmap, isl_dim_out, id);
 
 	bmap = isl_basic_map_set_tuple_name(bmap, isl_dim_in, NULL);
-	n_out -= 2;
+	n_out -= 1;
 	for (i = 0; i < n_out; ++i)
 		bmap = isl_basic_map_set_dim_name(bmap, isl_dim_out, i, NULL);
 	for (i = 0; i < n_in; ++i)
@@ -2423,6 +2472,7 @@ static isl_stat const_complete_accesses(
 
 	*reads = union_map_transform(*reads, &map_const_complete, &patterns);
 	*writes = union_map_transform(*writes, &map_const_complete, &patterns);
+	isl_basic_map_list_dump(patterns);
 	isl_basic_map_list_free(patterns);
 
 	if (!*reads || !*writes) {
@@ -2529,7 +2579,7 @@ static struct ppcg_scop *ppcg_scop_from_pet_scop(struct pet_scop *scop,
 	if (!ps->context || !ps->domain || !ps->call || !ps->reads ||
 	    !ps->may_writes || !ps->must_writes || !ps->tagged_must_kills ||
 	    !ps->must_kills || !ps->schedule || !ps->independence ||
-            !ps->names)
+	    !ps->names)
 		return ppcg_scop_free(ps);
 
 	return ps;
