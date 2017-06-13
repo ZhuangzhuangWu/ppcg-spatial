@@ -2481,7 +2481,6 @@ static isl_stat const_complete_accesses(
 
 	*reads = union_map_transform(*reads, &map_const_complete, &patterns);
 	*writes = union_map_transform(*writes, &map_const_complete, &patterns);
-	isl_basic_map_list_dump(patterns);
 	isl_basic_map_list_free(patterns);
 
 	if (!*reads || !*writes) {
