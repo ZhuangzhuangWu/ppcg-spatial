@@ -42,6 +42,11 @@
 #   define N 2600
 #  endif
 
+#ifdef POPL_DATASET
+#define M 2048
+#define N 2048
+#endif
+
 
 #endif /* !(M N) */
 

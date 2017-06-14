@@ -47,6 +47,12 @@
 #   define NP 270
 #  endif
 
+#ifdef POPL_DATASET
+#define NQ 512
+#define NR 512
+#define NP 512
+#endif
+
 
 #endif /* !(NQ NR NP) */
 

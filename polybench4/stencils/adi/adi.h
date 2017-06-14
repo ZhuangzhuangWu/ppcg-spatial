@@ -42,6 +42,11 @@
 #   define N 2000
 #  endif
 
+#ifdef POPL_DATASET
+#define TSTEPS 512
+#define N 512
+#endif
+
 
 #endif /* !(TSTEPS N) */
 
