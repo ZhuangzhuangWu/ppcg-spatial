@@ -57,6 +57,14 @@
 #   define NM 2400
 #  endif
 
+#  ifdef POPL_DATASET 
+#   define NI 1024
+#   define NJ 2048
+#   define NK 2048
+#   define NL 2048
+#   define NM 2048
+#  endif
+
 
 #endif /* !(NI NJ NK NL NM) */
 

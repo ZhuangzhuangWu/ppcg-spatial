@@ -42,6 +42,11 @@
 #   define H 4320
 #  endif
 
+#ifdef POPL_DATASET
+#define W 8192
+#define H 4096
+#endif
+
 
 #endif /* !(W H) */
 

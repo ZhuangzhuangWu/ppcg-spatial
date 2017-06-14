@@ -47,6 +47,12 @@
 #   define NY 2600
 #  endif
 
+#ifdef POPL_DATASET
+#define TMAX 1024
+#define NX 2048
+#define NY 2048
+#endif
+
 
 #endif /* !(TMAX NX NY) */
 
