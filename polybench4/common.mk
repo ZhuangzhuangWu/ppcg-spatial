@@ -75,7 +75,7 @@ ppcg_basic_tiled: ${SRC}.c
 	ppcg -I${INC} ${SRC}.c --target=c --tile -o ${SRC}.ppcg.tile.c --openmp
 
 pluto: ${SRC}.c
-	polycc ${SRC}.c -q -o ${SRC}.pluto.c --parallel --tile
+	polycc ${SRC}.c -q -o ${SRC}.pluto.c --parallel --tile --noprevector
 
 pluto_verbose: ${SRC}.c
 	polycc ${SRC}.c --parallel --tile -o ${SRC}.pluto.c
