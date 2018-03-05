@@ -580,6 +580,89 @@ static __isl_give isl_schedule_node *tile_band(
 	return tile(node, sizes);
 }
 
+/* Transform a schedule without outer coincident band members in a wavefront
+ * schedule.  In particular, for a band node "node", if the first two members
+ * are not coincident, skew the outer member by the inner member, i.e. replace
+ * the expression for the first member by a sum of the first two members.  This
+ * results in the first member carrying all dependences carried by the second
+ * member, and the latter becoming coincident.  Effectively, we only check if
+ * the first band member is coincident because only the second band member can
+ * only be coincident if the first is by construction.
+ */
+static __isl_give isl_schedule_node *compute_wavefront(
+	__isl_take isl_schedule_node *node)
+{
+	isl_bool coincident;
+	int i;
+	isl_multi_union_pw_aff *schedule;
+	isl_union_pw_aff *outer;
+
+	if (isl_schedule_node_band_n_member(node) <= 1)
+		return node;
+
+	coincident = isl_schedule_node_band_member_get_coincident(node, 0);
+
+	if (coincident < 0)
+		return isl_schedule_node_free(node);
+	if (coincident)
+		return node;
+
+	schedule = isl_schedule_node_band_get_partial_schedule(node);
+	outer = isl_multi_union_pw_aff_get_union_pw_aff(schedule, 0);
+	outer = isl_union_pw_aff_add(outer,
+		isl_multi_union_pw_aff_get_union_pw_aff(schedule, 1));
+	schedule = isl_multi_union_pw_aff_set_union_pw_aff(schedule, 0, outer);
+
+	return isl_schedule_node_band_set_partial_schedule(node, schedule);
+}
+
+/* Compute wavefront schedule for a band node that does not feature outer
+ * coincidence and does not have an ancestor band node with more than 1 member
+ * or any number of coincident members. In practice, we only check the first
+ * member of outer bands for coincidence because if it is not coincident,
+ * neither are the following members of the same band by construction.
+ */
+static __isl_give isl_schedule_node *setup_wavefront(
+	__isl_take isl_schedule_node *node, void *usr)
+{
+	isl_schedule_node *ancestor;
+	isl_bool has_ancestor;
+	int n_member;
+	isl_bool skip;
+
+	if (isl_schedule_node_get_type(node) != isl_schedule_node_band)
+		return node;
+
+	has_ancestor = isl_bool_true;
+	ancestor = isl_schedule_node_copy(node);
+	while (has_ancestor != isl_bool_false) {
+		has_ancestor = isl_schedule_node_has_parent(ancestor);
+		if (has_ancestor < 0) {
+			isl_schedule_node_free(ancestor);
+			return isl_schedule_node_free(node);
+		}
+		if (!has_ancestor)
+			break;
+
+		ancestor = isl_schedule_node_parent(ancestor);
+		if (isl_schedule_node_get_type(ancestor)
+			!= isl_schedule_node_band)
+			continue;
+
+		n_member = isl_schedule_node_band_n_member(ancestor);
+		skip = n_member > 1 || (n_member > 0 &&
+			isl_schedule_node_band_member_get_coincident(
+				ancestor, 0));
+		if (skip) {
+			isl_schedule_node_free(ancestor);
+			return node;
+		}
+	}
+	isl_schedule_node_free(ancestor);
+
+	return compute_wavefront(node);
+}
+
 /* Construct schedule constraints from the dependences in ps
  * for the purpose of computing a schedule for a CPU.
  *
@@ -699,6 +782,9 @@ static __isl_give isl_schedule *get_schedule(struct ppcg_scop *ps,
 	if (ps->options->tile)
 		schedule = isl_schedule_map_schedule_node_bottom_up(schedule,
 							&tile_band, ps);
+
+	schedule = isl_schedule_map_schedule_node_bottom_up(schedule,
+		&setup_wavefront, NULL);
 
 	return schedule;
 }
